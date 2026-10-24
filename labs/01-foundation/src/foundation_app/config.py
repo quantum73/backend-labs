@@ -1,4 +1,3 @@
-from contextlib import suppress
 from functools import lru_cache
 from typing import Self
 
@@ -37,7 +36,7 @@ class FoundationSettings(AppSettings):
         return self
 
     def database_dsn(self) -> SecretStr:
-        with suppress(ValidationError):
+        try:
             dsn = PostgresDsn.build(
                 scheme=self.database_driver,
                 username=self.database_user,
@@ -47,8 +46,10 @@ class FoundationSettings(AppSettings):
                 path=self.database_name,
             )
             return SecretStr(str(dsn))
+        except ValidationError:
+            pass
 
-        raise ValueError("database_* fields do not form a valid PostgreSQL DSN")
+        raise ValueError("database_* fields do not form a valid PostgreSQL DSN") from None
 
 
 @lru_cache(maxsize=1)

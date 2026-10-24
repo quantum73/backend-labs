@@ -15,12 +15,12 @@ def test_settings_read_prefixed_env_with_types():
     assert settings.http_timeout_s == 14.0
 
 
-def test_dump_and_repr_do_not_expose_secrets(secrets):
+def test_dump_and_repr_do_not_expose_secrets(secrets_values):
     settings = FoundationSettings(_env_file=None)
 
     rendered = [repr(settings), str(settings), str(settings.model_dump()), settings.model_dump_json()]
 
-    assert not [(secret, text) for secret in secrets for text in rendered if secret in text]
+    assert not [(secret, text) for secret in secrets_values for text in rendered if secret in text]
     assert not {"database_url", "database_dsn"} & settings.model_dump().keys()
 
 

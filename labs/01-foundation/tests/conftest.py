@@ -46,5 +46,5 @@ def valid_env(monkeypatch) -> dict[str, str]:
 
 
 @pytest.fixture
-def secrets(valid_env) -> tuple[str, ...]:
+def secrets_values(valid_env) -> tuple[str, ...]:
     return valid_env["APP_DATABASE_PASSWORD"], valid_env["APP_API_TOKEN"]

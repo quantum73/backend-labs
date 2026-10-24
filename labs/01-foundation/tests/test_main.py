@@ -63,7 +63,7 @@ def test_main_logs_config_invalid(monkeypatch, capsys):
 def test_main_never_prints_secrets(
     monkeypatch,
     capsys,
-    secrets: tuple[str, ...],
+    secrets_values: tuple[str, ...],
     overrides: dict,
     exit_code: int,
 ):
@@ -73,7 +73,7 @@ def test_main_never_prints_secrets(
     assert main() == exit_code
     out, err = capsys.readouterr()
     assert out
-    assert not [secret for secret in secrets if secret in out + err]
+    assert not [secret for secret in secrets_values if secret in out + err]
 
 
 @pytest.mark.usefixtures("valid_env")
@@ -89,7 +89,7 @@ def test_main_reconfigures_logging_on_each_run(monkeypatch, capsys):
 
 
 @pytest.mark.usefixtures("valid_env")
-def test_main_ignores_dotenv_in_cwd(tmp_path, monkeypatch, capsys):
+def test_isolation_ignores_dotenv(tmp_path, monkeypatch, capsys):
     (tmp_path / ".env").write_text("APP_LOG_JSON=false\n")
     monkeypatch.chdir(tmp_path)
 
