@@ -4,8 +4,8 @@ import structlog
 from pydantic import ValidationError
 
 from foundation_app.config import get_settings
-from labkit.config import APP_SETTINGS_LOGGED_FIELDS_ALLOW_LIST
 from labkit.logging import configure_logging
+from labkit.settings import APP_SETTINGS_LOGGED_FIELDS_ALLOW_LIST
 
 logger = structlog.get_logger()
 GOOD_EXIT_CODE = 0
