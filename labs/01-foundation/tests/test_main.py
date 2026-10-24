@@ -1,113 +1,117 @@
 import json
 import os
+import subprocess
+import sys
 
 import pytest
-import structlog
 
-from foundation_app.config import get_settings
-from foundation_app.main import main as main_func
-
-
-@pytest.fixture(autouse=True)
-def cleaner(monkeypatch):
-    get_settings.cache_clear()
-    structlog.reset_defaults()
-    structlog.contextvars.clear_contextvars()
-    # Removing all environment keys
-    for key in os.environ:
-        if key.startswith("APP_"):
-            monkeypatch.delenv(key, raising=False)
-
-    yield
-
-    structlog.contextvars.clear_contextvars()
+from foundation_app.config import LOGGED_SETTINGS_FIELDS
+from foundation_app.main import BAD_EXIT_CODE, GOOD_EXIT_CODE, main
 
 
-def test_main_correct_settings(monkeypatch, capsys):
-    env_value = "test"
-    db_driver = "postgresql"
-    db_user = "user"
-    db_password = "fake_password"  # noqa: S105
-    db_host = "localhost"
-    db_port = 5432
-    db_name = "dbname"
-    test_api_token = "fake_secret_token_12345"  # noqa: S105
-    expected_masked_api_token_value = "***"  # noqa: S105
-    http_timeout = 14.0
-    monkeypatch.setenv("APP_ENV", env_value)
-    monkeypatch.setenv("APP_DATABASE_DRIVER", db_driver)
-    monkeypatch.setenv("APP_DATABASE_USER", db_user)
-    monkeypatch.setenv("APP_DATABASE_PASSWORD", db_password)
-    monkeypatch.setenv("APP_DATABASE_HOST", db_host)
-    monkeypatch.setenv("APP_DATABASE_PORT", str(db_port))
-    monkeypatch.setenv("APP_DATABASE_NAME", db_name)
-    monkeypatch.setenv("APP_API_TOKEN", test_api_token)
-    monkeypatch.setenv("APP_HTTP_TIMEOUT_S", str(http_timeout))
-
-    assert main_func() == 0
-
-    captured = capsys.readouterr()
-    err_lines = captured.err.strip()
-    assert test_api_token not in err_lines
-    err_lines = err_lines.split("\n")
-    assert len(err_lines) == 1
-    assert not err_lines[0]
-
-    log_lines = captured.out.strip()
-    assert test_api_token not in log_lines
-    log_lines = log_lines.split("\n")
-    assert len(log_lines) == 1
-
-    log_entry = json.loads(log_lines[0])
-    assert log_entry["event"] == "app_started"
-    assert log_entry["level"] == "info"
-    assert log_entry["run_id"]
-    assert log_entry["settings"]["log_json"]
-    assert log_entry["settings"]["env"] == env_value
-    assert "database_url" not in log_entry["settings"]
-    assert "database_password" not in log_entry["settings"]
-    assert log_entry["settings"]["api_token"] == expected_masked_api_token_value
-    assert log_entry["settings"]["http_timeout_s"] == http_timeout
+def _read_single_event(capsys) -> dict:
+    out, err = capsys.readouterr()
+    assert not err
+    lines = out.splitlines()
+    assert len(lines) == 1
+    return json.loads(lines[0])
 
 
-def test_main_incorrect_settings(monkeypatch, capsys):
-    env_value = "test"
-    db_driver = "postgresql"
-    db_user = "user"
-    db_password = "fake_password"  # noqa: S105
-    db_host = "localhost"
-    db_port = 5432
-    db_name = "dbname"
-    test_api_token = "fake_secret_token_12345"  # noqa: S105
-    invalid_http_timeout = 140.0
-    monkeypatch.setenv("APP_ENV", env_value)
-    monkeypatch.setenv("APP_DATABASE_DRIVER", db_driver)
-    monkeypatch.setenv("APP_DATABASE_USER", db_user)
-    monkeypatch.setenv("APP_DATABASE_PASSWORD", db_password)
-    monkeypatch.setenv("APP_DATABASE_HOST", db_host)
-    monkeypatch.setenv("APP_DATABASE_PORT", str(db_port))
-    monkeypatch.setenv("APP_DATABASE_NAME", db_name)
-    monkeypatch.setenv("APP_API_TOKEN", test_api_token)
-    monkeypatch.setenv("APP_HTTP_TIMEOUT_S", str(invalid_http_timeout))
+@pytest.mark.usefixtures("valid_env")
+def test_main_logs_app_started(capsys):
+    assert main() == GOOD_EXIT_CODE
 
-    assert main_func() == 2
+    entry = _read_single_event(capsys)
+    assert entry["event"] == "app_started"
+    assert entry["level"] == "info"
+    assert entry["run_id"]
+    assert entry["settings"].keys() == LOGGED_SETTINGS_FIELDS
+    assert entry["settings"]["env"] == "test"
+    assert entry["settings"]["http_timeout_s"] == 14.0
 
-    captured = capsys.readouterr()
-    err_lines = captured.err.strip()
-    assert test_api_token not in err_lines
-    err_lines = err_lines.split("\n")
-    assert len(err_lines) == 1
-    assert not err_lines[0]
 
-    log_lines = captured.out.strip()
-    assert test_api_token not in log_lines
-    log_lines = log_lines.split("\n")
-    assert len(log_lines) == 1
+@pytest.mark.usefixtures("valid_env")
+def test_main_logs_config_invalid(monkeypatch, capsys):
+    monkeypatch.setenv("APP_HTTP_TIMEOUT_S", "140.0")
 
-    log_entry = json.loads(log_lines[0])
-    assert log_entry["event"] == "config_invalid"
-    assert log_entry["level"] == "error"
-    assert "run_id" not in log_entry
-    assert len(log_entry["errors"]) == 1
-    assert log_entry["errors"][0]["field"] == "http_timeout_s"
-    assert log_entry["errors"][0]["msg"] == "Input should be less than or equal to 30"
+    assert main() == BAD_EXIT_CODE
+
+    entry = _read_single_event(capsys)
+    assert entry["event"] == "config_invalid"
+    assert entry["level"] == "error"
+    assert "run_id" not in entry
+    assert entry["errors"] == [
+        {
+            "field": "http_timeout_s",
+            "type": "less_than_equal",
+            "msg": "Input should be less than or equal to 30",
+        },
+    ]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "exit_code"),
+    [
+        pytest.param({}, GOOD_EXIT_CODE, id="valid-json"),
+        pytest.param({"APP_LOG_JSON": "false"}, GOOD_EXIT_CODE, id="valid-console"),
+        pytest.param({"APP_HTTP_TIMEOUT_S": "140"}, BAD_EXIT_CODE, id="invalid-timeout"),
+        pytest.param({"APP_DATABASE_HOST": "bad host"}, BAD_EXIT_CODE, id="invalid-dsn-host"),
+        pytest.param({"APP_DATABASE_DRIVER": "mysql"}, BAD_EXIT_CODE, id="invalid-dsn-scheme"),
+        pytest.param({"APP_DATABASE_PORT": "70000"}, BAD_EXIT_CODE, id="invalid-dsn-port"),
+    ],
+)
+def test_main_never_prints_secrets(
+    monkeypatch,
+    capsys,
+    secrets: tuple[str, ...],
+    overrides: dict,
+    exit_code: int,
+):
+    for key, value in overrides.items():
+        monkeypatch.setenv(key, value)
+
+    assert main() == exit_code
+    out, err = capsys.readouterr()
+    assert out
+    assert not [secret for secret in secrets if secret in out + err]
+
+
+@pytest.mark.usefixtures("valid_env")
+def test_main_reconfigures_logging_on_each_run(monkeypatch, capsys):
+    monkeypatch.setenv("APP_HTTP_TIMEOUT_S", "140")
+    assert main() == BAD_EXIT_CODE
+    capsys.readouterr()
+
+    monkeypatch.setenv("APP_HTTP_TIMEOUT_S", "14")
+    assert main() == GOOD_EXIT_CODE
+
+    assert _read_single_event(capsys)["event"] == "app_started"
+
+
+@pytest.mark.usefixtures("valid_env")
+def test_main_ignores_dotenv_in_cwd(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".env").write_text("APP_LOG_JSON=false\n")
+    monkeypatch.chdir(tmp_path)
+
+    assert main() == GOOD_EXIT_CODE
+
+    assert _read_single_event(capsys)["event"] == "app_started"
+
+
+@pytest.mark.usefixtures("valid_env")
+@pytest.mark.parametrize(
+    ("overrides", "exit_code"),
+    [
+        pytest.param({}, GOOD_EXIT_CODE, id="valid"),
+        pytest.param({"APP_HTTP_TIMEOUT_S": "140"}, BAD_EXIT_CODE, id="invalid"),
+    ],
+)
+def test_module_entrypoint_propagates_exit_code(tmp_path, overrides, exit_code):
+    result = subprocess.run(
+        [sys.executable, "-m", "foundation_app.main"],
+        cwd=tmp_path,
+        env=os.environ | overrides,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == exit_code
