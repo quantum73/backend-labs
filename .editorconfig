@@ -1,26 +1,28 @@
+# https://editorconfig.org
 root = true
 
-# 1. Глобальные настройки для всех файлов проекта
+# Глобальные настройки (кодировка, переносы строк и финальная строка)
 [*]
 charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
-indent_style = space
-indent_size = 4
 
-# 2. Настройки для Python (PEP 8 стандарты)
+# 4 пробела для Python
 [*.py]
 indent_style = space
 indent_size = 4
 
-# Настройки для Go (Официальный стандарт gofmt)
-[*.go]
+# Табы для Go и Makefile
+[*.{go,am}]
 indent_style = tab
 indent_size = 4
 tab_width = 4
 
-# Файлы конфигураций и разметки
-[*.{yaml,yml,json}]
+[Makefile]
+indent_style = tab
+
+# 2 пробела для YAML/TOML/JSON/proto
+[*.{yaml,yml,toml,json,proto}]
 indent_style = space
 indent_size = 2
