@@ -7,14 +7,14 @@ from pydantic_settings import SettingsConfigDict
 from labkit.settings import APP_SETTINGS_LOGGED_FIELDS_ALLOW_LIST, AppSettings
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
-FOUNDATION_SETTINGS_FIELDS_ALLOW_LIST = [
+FOUNDATION_SETTINGS_FIELDS_ALLOW_LIST = {
     "database_driver",
     "database_user",
     "database_host",
     "database_port",
     "database_name",
     *APP_SETTINGS_LOGGED_FIELDS_ALLOW_LIST,
-]
+}
 
 
 class FoundationSettings(AppSettings):
@@ -25,7 +25,6 @@ class FoundationSettings(AppSettings):
         frozen=True,
     )
 
-    database_url: PostgresDsn | None = Field(default=None)
     database_driver: str = Field(default="postgresql")
     database_user: str
     database_password: SecretStr
