@@ -29,6 +29,14 @@ backend-labs/
         └── tests/
 ```
 
+## Лабы
+
+| № | Лаба | Тема | Пакет |
+|---|---|---|---|
+| 01 | [`labs/01-foundation`](labs/01-foundation) | Инженерный фундамент: uv workspace, ruff, mypy, pre-commit, конфиг без утечек секретов, structlog, CI | `foundation-app` |
+
+Общий код всех лаб лежит в [`libs/labkit`](libs/labkit): базовые настройки (`env`, `log_level`, `log_json`) и `configure_logging` с маскированием секретов.
+
 ### Быстрый старт
 При первом клонировании нужно выполнить команду `make install && make check`
 
