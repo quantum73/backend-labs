@@ -6,47 +6,36 @@ from structlog.processors import ExceptionRenderer
 from structlog.tracebacks import ExceptionDictTransformer
 from structlog.typing import EventDict, WrappedLogger
 
-SENSITIVE_FIELDS = {"password", "token", "secret", "authorization", "api_key", "card"}
+SENSITIVE_FIELDS = frozenset({"password", "token", "secret", "authorization", "api_key", "card"})
 MASKED_FIELD = "***"
+_PASSTHROUGH_KEYS = frozenset({"event", "timestamp", "level"})
+
+
+def _is_sensitive(key: object) -> bool:
+    normalized = str(key).lower().replace("-", "_")
+    return any(marker in normalized for marker in SENSITIVE_FIELDS)
 
 
 def _mask_recursive(data: Any) -> Any:
     if isinstance(data, dict):
-        new_dict = {}
-        for key, value in data.items():
-            key_lower = str(key).lower()
-            is_sensitive = any(sub in key_lower for sub in SENSITIVE_FIELDS)
-            if is_sensitive:
-                new_dict[key] = MASKED_FIELD
-            else:
-                new_dict[key] = _mask_recursive(value)
-        return new_dict
-
-    elif isinstance(data, (list, tuple)):
+        return {key: MASKED_FIELD if _is_sensitive(key) else _mask_recursive(value) for key, value in data.items()}
+    if isinstance(data, list):
         return [_mask_recursive(item) for item in data]
-    else:
-        return data
+    if isinstance(data, tuple):
+        return tuple(_mask_recursive(item) for item in data)
+    return data
 
 
 def mask_sensitive(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDict:
+    passthrough = {key: value for key, value in event_dict.items() if key in _PASSTHROUGH_KEYS}
+    payload = {key: value for key, value in event_dict.items() if key not in _PASSTHROUGH_KEYS}
     try:
-        new_event_dict = {}
-
-        for key, value in event_dict.items():
-            if key in ("event", "timestamp", "level"):
-                new_event_dict[key] = value
-                continue
-
-            key_lower = str(key).lower()
-            is_sensitive = any(sub in key_lower for sub in SENSITIVE_FIELDS)
-            if is_sensitive:
-                new_event_dict[key] = MASKED_FIELD
-            else:
-                new_event_dict[key] = _mask_recursive(value)
-    except Exception:
-        return event_dict
-    else:
-        return new_event_dict
+        masked: dict[str, Any] = _mask_recursive(payload)
+    except Exception as exc:
+        # fail-closed: при ошибке теряем поля, но не раскрываем секреты; тип ошибки оставляем для отладки
+        masked = dict.fromkeys(payload, MASKED_FIELD)
+        masked |= {"masking_failed": True, "masking_error": type(exc).__name__}
+    return passthrough | masked
 
 
 def configure_logging(*, level: str = "INFO", json: bool = True) -> None:
