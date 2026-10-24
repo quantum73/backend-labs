@@ -17,8 +17,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@<SHA>  # vX.Y.Z — закреплять по SHA, см. ниже
-      - uses: astral-sh/setup-uv@<SHA>  # vX.Y.Z
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 — закреплять по SHA
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2 — закреплять по SHA
         with:
           enable-cache: true
       - run: uv sync --locked --all-packages
