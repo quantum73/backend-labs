@@ -1,20 +1,18 @@
 # https://editorconfig.org
 root = true
 
-# Глобальные настройки (кодировка, переносы строк и финальная строка)
+# Глобальные настройки
 [*]
 charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-# 4 пробела для Python
 [*.py]
 indent_style = space
 indent_size = 4
 
-# Табы для Go и Makefile
-[*.{go,am}]
+[*.go]
 indent_style = tab
 indent_size = 4
 tab_width = 4
@@ -22,7 +20,6 @@ tab_width = 4
 [Makefile]
 indent_style = tab
 
-# 2 пробела для YAML/TOML/JSON/proto
 [*.{yaml,yml,toml,json,proto}]
 indent_style = space
 indent_size = 2
