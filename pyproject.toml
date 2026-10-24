@@ -59,6 +59,10 @@ warn_unreachable = true
 enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disable_error_code = ["override"]
+
 [tool.pyright]
 venvPath = "."     # без этого pyright ищет пакеты в системном Python и не видит workspace
 venv = ".venv"
