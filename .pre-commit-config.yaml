@@ -35,7 +35,7 @@ repos:
         pass_filenames: false
       - id: mypy
         name: mypy
-        entry: uv run --frozen mypy libs/labkit/src labs/01-foundation/src
+        entry: make typecheck
         language: system
         pass_filenames: false
         types: [python]
