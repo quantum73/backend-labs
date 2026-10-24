@@ -27,3 +27,14 @@ backend-labs/
         ├── src/foundation_app/{__init__.py, py.typed, config.py, main.py}
         └── tests/
 ```
+
+### Быстрый старт
+При первом клонировании нужно выполнить команду `make install && make check`
+
+### Makefile команды
+- `install`: делает синк `uv workspace` и устанавливает pre-commit хуки
+- `fmt`: форматирование кода через `ruff`
+- `lint`: линтинг кода через `ruff`
+- `typecheck`: тайпчекинг через `mypy`
+- `test`: запуск тестов через `pytest`
+- `check`: полный запуск проверки (`lint` + `typecheck` + `test`)
