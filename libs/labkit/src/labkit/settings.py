@@ -1,4 +1,3 @@
-from functools import lru_cache
 from typing import Literal
 
 from pydantic import Field, PostgresDsn, SecretStr, field_serializer
@@ -50,8 +49,3 @@ class AppSettings(BaseSettings):
             path=self.database_name,
         )
         return str(dsn)
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> AppSettings:
-    return AppSettings()
