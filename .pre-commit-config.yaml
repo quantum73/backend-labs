@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
+      - id: detect-private-key
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0            # актуализировать: uv run pre-commit autoupdate
+    hooks:
+      - id: gitleaks
+
+  # Инструменты из uv.lock: версии ruff и mypy совпадают с CI и IDE
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: uv-lock
+        name: uv.lock актуален
+        entry: uv lock --check
+        language: system
+        files: (^|/)pyproject\.toml$|^uv\.lock$
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: make typecheck
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]   # медленные проверки — на push, а не на каждый commit
