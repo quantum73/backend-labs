@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read                      # минимальные права по умолчанию
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true            # новый push отменяет устаревший прогон
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@<SHA>  # vX.Y.Z — закреплять по SHA, см. ниже
+      - uses: astral-sh/setup-uv@<SHA>  # vX.Y.Z
+        with:
+          enable-cache: true
+      - run: uv sync --locked --all-packages
+      - run: uv run --frozen ruff format --check
+      - run: uv run --frozen ruff check --output-format=github   # аннотации прямо в diff PR
+      - run: uv run --frozen mypy libs/*/src labs/*/src
+      - run: uv run --frozen pytest
