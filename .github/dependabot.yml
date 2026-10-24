@@ -6,6 +6,8 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     cooldown:
+      default-days: 7          # для обновлений, где semver не определён
+      semver-major-days: 14    # мажорные идут отдельными PR и самые рискованные
       semver-minor-days: 7
       semver-patch-days: 3
     groups:
