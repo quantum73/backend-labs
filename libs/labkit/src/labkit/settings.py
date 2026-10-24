@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+APP_SETTINGS_LOGGED_FIELDS_ALLOW_LIST = ["env", "log_level", "log_json", "api_token", "http_timeout_s"]
+
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
