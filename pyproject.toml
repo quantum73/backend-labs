@@ -6,6 +6,7 @@ dev = [
     "mypy>=2.4.0",
     "pre-commit>=4.7.0",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "pytest-randomly>=5.0.0",
     "ruff>=0.17.2",
 ]
@@ -45,9 +46,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "PLR2004", "ARG"]   # assert, «магические» числа, фикстуры
+"labs/02-aggregator/src/aggregator_app/legacy.py" = ["ALL"] # эталон "как было", не линтим
 
 [tool.ruff.lint.isort]
-known-first-party = ["labkit", "foundation_app"]
+known-first-party = ["labkit", "foundation_app", "aggregator_app"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -73,3 +75,5 @@ testpaths = ["libs", "labs"]
 addopts = ["--import-mode=importlib", "--strict-markers", "--strict-config", "-ra"]
 xfail_strict = true
 filterwarnings = ["error"]   # DeprecationWarning из зависимостей видны сразу, а не после апгрейда
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
