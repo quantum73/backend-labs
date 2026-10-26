@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import statistics
 import time
 from collections import deque
 from collections.abc import Sequence
@@ -53,29 +54,43 @@ async def test_loop_lag_monitor_parameters(
     ("samples", "p", "expected_exception", "expected_result"),
     [
         ([], -10, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE), None),
-        ([], 100, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE), None),
         ([], 110, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE), None),
-        ([], 0, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE), None),
+        ([], float("nan"), pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE), None),
+        ([], 0, contextlib.nullcontext(), 0.0),
         ([], 90, contextlib.nullcontext(), 0.0),
+        ([], 100, contextlib.nullcontext(), 0.0),
+        ([7], 99.9, contextlib.nullcontext(), 7.0),
+        (list(range(1, 11)), 0, contextlib.nullcontext(), 1.0),
+        (list(range(1, 11)), 100, contextlib.nullcontext(), 10.0),
         (list(range(1, 11)), 50, contextlib.nullcontext(), 5.5),
         (list(range(1, 11)), 25, contextlib.nullcontext(), 3.25),
         (list(range(1, 11)), 75, contextlib.nullcontext(), 7.75),
         (list(range(1, 11)), 1, contextlib.nullcontext(), 1.09),
         (list(range(1, 11)), 99, contextlib.nullcontext(), 9.91),
+        (list(range(1, 11)), 50.9, contextlib.nullcontext(), 5.581),
+        (list(range(1, 1001)), 99.9, contextlib.nullcontext(), 999.001),
+        ([10, 2, 7, 5], 50, contextlib.nullcontext(), 6.0),
         ([5, 5, 5, 5], 50, contextlib.nullcontext(), 5.0),
         ([1, 1, 2, 2], 50, contextlib.nullcontext(), 1.5),
     ],
     ids=[
         "p_negative",
-        "p_100",
         "p_over_100",
-        "p_zero",
-        "empty_samples",
+        "p_nan",
+        "empty_p_min",
+        "empty_p_90",
+        "empty_p_max",
+        "single_sample",
+        "p_0_is_min",
+        "p_100_is_max",
         "median_1_10",
         "q1_10",
         "q3_10",
-        "p_min_allowed",
-        "p_max_allowed",
+        "p_1",
+        "p_99",
+        "fractional_p",
+        "p99_9",
+        "unsorted",
         "all_same",
         "duplicates",
     ],
@@ -95,17 +110,33 @@ def test_loop_lag_monitor_percentile(
 @pytest.mark.parametrize(
     ("p", "expected_exception"),
     [
-        (0.9, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE)),
-        (99.1, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE)),
-        (1.0, contextlib.nullcontext()),
-        (99.0, contextlib.nullcontext()),
+        (-0.1, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE)),
+        (100.1, pytest.raises(ValueError, match=INVALID_PERCENTILE_VALUE_ERROR_MESSAGE)),
+        (0.0, contextlib.nullcontext()),
+        (100.0, contextlib.nullcontext()),
     ],
     ids=["below_min", "above_max", "exact_min", "exact_max"],
 )
 def test_percentile_boundaries(p, expected_exception):
-    """Тест на строгую валидацию границ [1, 99] параметра p."""
+    """Тест на строгую валидацию границ [0, 100] параметра p."""
     with expected_exception:
         LoopLagMonitor._percentile(samples=[1, 2, 3], p=p)
+
+
+def test_percentile_does_not_round_fractional_p():
+    """Регрессия: int(p) молча превращал 50.9 в 50."""
+    samples = list(range(1, 11))
+    assert LoopLagMonitor._percentile(samples=samples, p=50.9) != LoopLagMonitor._percentile(samples=samples, p=50)
+
+
+def test_percentile_matches_statistics_inclusive():
+    """На целых p формула совпадает с statistics.quantiles(n=100, method="inclusive")."""
+    samples = [0.3, 0.001, 0.02, 0.15, 0.007, 0.5, 0.04, 0.09, 0.011, 0.2, 0.06]
+    expected = statistics.quantiles(samples, n=100, method="inclusive")
+
+    actual = [LoopLagMonitor._percentile(samples=samples, p=p) for p in range(1, 100)]
+
+    assert actual == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("sequence_type", [list, tuple, deque], ids=["list", "tuple", "deque"])

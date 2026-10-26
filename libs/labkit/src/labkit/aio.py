@@ -1,11 +1,12 @@
 import asyncio
-import statistics
+import math
 from collections import deque
 from collections.abc import Sequence
 from types import TracebackType
 from typing import Self
 
-PERCENTILE_MIN_VALUE, PERCENTILE_MAX_VALUE = 1, 99
+PERCENTILE_MIN_VALUE = 0
+PERCENTILE_MAX_VALUE = 100
 
 
 class LoopLagMonitor:
@@ -51,18 +52,21 @@ class LoopLagMonitor:
     @classmethod
     def _percentile(cls, *, samples: Sequence[float], p: float) -> float:
         """
-        Для расчёта используется функция quantiles из встроенной библиотеки statistics.
+        Линейная интерполяция между соседними порядковыми статистиками (метод 7 по Hyndman–Fan,
+        как numpy.percentile по умолчанию и statistics.quantiles(method="inclusive")).
+        p — любое число из [0, 100], включая дробные (p99.9); p=0 даёт минимум, p=100 — максимум.
         """
-        if p < PERCENTILE_MIN_VALUE or p > PERCENTILE_MAX_VALUE:
+        if not PERCENTILE_MIN_VALUE <= p <= PERCENTILE_MAX_VALUE:
             raise ValueError(f"percentile `p` parameter has to be in [{PERCENTILE_MIN_VALUE}, {PERCENTILE_MAX_VALUE}]")
 
         if not samples:
             return 0.0
 
-        pct_points = statistics.quantiles(samples, n=100, method="inclusive")
-        # Индекс идёт с 0, поэтому для p=1 (1-й перцентиль) должно быть 0, для p=99 (99-й перцентиль) - 98.
-        idx = int(p) - 1
-        return pct_points[idx]
+        ordered = sorted(samples)
+        rank = p / 100 * (len(ordered) - 1)
+        lower = math.floor(rank)
+        upper = min(lower + 1, len(ordered) - 1)
+        return ordered[lower] + (ordered[upper] - ordered[lower]) * (rank - lower)
 
     def percentile(self, p: float) -> float:
         return self._percentile(samples=self.samples, p=p)
