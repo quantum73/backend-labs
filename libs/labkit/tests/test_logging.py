@@ -1,6 +1,9 @@
 import copy
 import json
+import sys
 import threading
+from collections.abc import Callable
+from typing import TextIO
 
 import pytest
 import structlog
@@ -136,3 +139,30 @@ def test_level_filtering(capsys):
 
     lines = capsys.readouterr().out.splitlines()
     assert [json.loads(line)["event"] for line in lines] == ["kept"]
+
+
+@pytest.mark.parametrize(
+    ("stream_factory", "getattr_empty_target", "getattr_log_target"),
+    [
+        pytest.param(lambda: sys.stdout, "err", "out", id="stdout-stream-case"),
+        pytest.param(lambda: sys.stderr, "out", "err", id="stderr-stream-case"),
+        pytest.param(lambda: None, "err", "out", id="none-stream-case"),
+    ],
+)
+def test_logger_stream_parameter(
+    capsys,
+    stream_factory: Callable[[], TextIO | None],
+    getattr_empty_target: str,
+    getattr_log_target: str,
+):
+    stream_value = stream_factory()
+    configure_logging(level="INFO", json=True, stream=stream_value)
+
+    logger = structlog.get_logger()
+    logger.info("log_event")
+
+    outputs_data = capsys.readouterr()
+    empty_output = getattr(outputs_data, getattr_empty_target).strip()
+    log_output = getattr(outputs_data, getattr_log_target).strip()
+    assert not empty_output, f"Expected `{getattr_empty_target}` to be empty, got: {empty_output}"
+    assert "log_event" in log_output, f"Expected 'log_event' in `{getattr_log_target}`, but it is not"
