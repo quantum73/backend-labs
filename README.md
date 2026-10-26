@@ -47,3 +47,4 @@ backend-labs/
 - `typecheck`: тайпчекинг через `mypy`
 - `test`: запуск тестов через `pytest`
 - `check`: полный запуск проверки (`lint` + `typecheck` + `test`)
+- `pre-pr`: подготовка к PR (`fmt` + `lint` + `typecheck`)

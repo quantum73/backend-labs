@@ -1,4 +1,4 @@
-.PHONY: install fmt lint typecheck test check lint-check
+.PHONY: install fmt lint typecheck test check pre-pr
 
 install:
 	uv sync --all-packages
@@ -19,4 +19,4 @@ test:
 	uv run pytest
 
 check: lint typecheck test
-lint-check: fmt lint typecheck
+pre-pr: fmt lint typecheck
