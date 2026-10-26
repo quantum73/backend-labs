@@ -12,13 +12,14 @@ PERCENTILE_MAX_VALUE = 100
 class LoopLagMonitor:
     def __init__(self, *, interval_s: float = 0.01, max_samples: int = 100_000) -> None:
         """
-        :param interval_s: Интервал проверок в секундах.
-        Значение по умолчанию (0.01s / 10ms) — оптимальный компромисс:
-        - Нагрузка на CPU мало заметна для приложения (<0.5%);
-        - В среднем лаг, считается критическим, если превышает 50-100ms,
-        поэтому текущий дефолт более чем с запасом будет ловить такие блокировки;
-        - В современных ОС системный планировщик имеет шаг дискретизации времени около 1-15ms,
-        поэтому нет смысла задавать interval_s равным или, тем более, меньшим чем шаг дискретизации.
+        :param interval_s: Интервал проверок в секундах. Он же задаёт точность замера:
+        блокировка длительностью B даёт лаг не меньше B - interval_s.
+        Значение по умолчанию (0.01s / 10ms):
+        - блокировки, которые обычно считают критичными (50-100ms), измеряются с погрешностью не больше 10ms;
+        - накладные расходы: 100 пробуждений loop в секунду. Замер на простаивающем loop
+          (time.process_time за 5 с, Apple M5 Pro, Python 3.14): ~0.6% одного ядра при 10ms, ~2.5% при 1ms;
+        - на Windows разрешение таймера по умолчанию ~15.6ms, поэтому интервалы меньше него там не имеют смысла.
+          На Linux и macOS разрешение — доли миллисекунды.
         :param max_samples: Количество хранимых сэмплов, по умолчанию - 100_000.
         """
         self._validate_init_params(interval_s=interval_s, max_samples=max_samples)
@@ -84,7 +85,7 @@ class LoopLagMonitor:
 
     async def __aenter__(self) -> Self:
         if self._used:
-            raise RuntimeError("Repeatable call. This operation is denied!")
+            raise RuntimeError("LoopLagMonitor is single-use; create a new instance")
 
         self._used = True
         self._task = asyncio.create_task(self._run_monitor(), name="loop-lag-monitor")

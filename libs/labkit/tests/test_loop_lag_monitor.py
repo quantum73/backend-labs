@@ -286,5 +286,5 @@ async def test_loop_lag_monitor_is_one_time_use():
             async with monitor:
                 pass
 
-    with pytest.raises(RuntimeError, match="Repeatable call\\. This operation is denied!"):
+    with pytest.raises(RuntimeError, match="LoopLagMonitor is single-use; create a new instance"):
         await _repeatable_call()
