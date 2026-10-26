@@ -43,7 +43,7 @@ class LoopLagMonitor:
 
     @property
     def samples(self) -> Sequence[float]:
-        return self._samples
+        return tuple(self._samples)
 
     @property
     def max_s(self) -> float:
@@ -69,7 +69,7 @@ class LoopLagMonitor:
         return ordered[lower] + (ordered[upper] - ordered[lower]) * (rank - lower)
 
     def percentile(self, p: float) -> float:
-        return self._percentile(samples=self.samples, p=p)
+        return self._percentile(samples=self._samples, p=p)
 
     async def _run_monitor(self) -> None:
         loop = asyncio.get_running_loop()

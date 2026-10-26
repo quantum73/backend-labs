@@ -183,6 +183,20 @@ async def test_loop_lag_monitor():
 
 
 @pytest.mark.asyncio
+async def test_samples_cannot_be_modified_from_outside():
+    """Проверяем что samples только для чтения."""
+    async with LoopLagMonitor(interval_s=INTERVAL_S) as m:
+        await asyncio.sleep(INTERVAL_S * 3)
+
+    collected = len(m.samples)
+    with pytest.raises(AttributeError):
+        m.samples.clear()  # type: ignore[attr-defined]
+
+    assert collected > 0
+    assert len(m.samples) == collected
+
+
+@pytest.mark.asyncio
 async def test_loop_lag_monitor_leaks():
     """
     Тест проверяет что у LoopLagMonitor нет утечек, даже если внутри блока брошено исключение.
