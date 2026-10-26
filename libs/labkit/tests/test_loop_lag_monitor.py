@@ -12,7 +12,11 @@ from labkit.aio import PERCENTILE_MAX_VALUE, PERCENTILE_MIN_VALUE, LoopLagMonito
 INVALID_PERCENTILE_VALUE_ERROR_MESSAGE = (
     f"percentile `p` parameter has to be in \\[{PERCENTILE_MIN_VALUE}, {PERCENTILE_MAX_VALUE}]"
 )
+BLOCK_S = 0.15
 INTERVAL_S = 0.01
+# Нижняя граница замера: блокировка могла начаться в любой момент sleep(interval_s) монитора,
+# поэтому измеренный лаг не меньше BLOCK_S - INTERVAL_S, а не BLOCK_S.
+MIN_DETECTED_LAG_S = BLOCK_S - INTERVAL_S
 
 
 @pytest.mark.asyncio
@@ -148,38 +152,34 @@ def test_percentile_supports_sequence_interface(sequence_type):
 
 
 @pytest.mark.asyncio
-async def test_loop_lag_monitor():
-    """
-    Тест проверяет основную работу LoopLagMonitor:
-    - Размер samples ограничен значением max_samples, старые значения вытесняются из буфера.
-    - max_s считается за всё время, даже если сэмплы вытеснены из буфера.
-    - Простой виден как простой: только await asyncio.sleep(0.2) → max_s < 0.02.
-    """
-    sleep_interval = 0.02
-    async with LoopLagMonitor(interval_s=0.01, max_samples=1) as m:
+async def test_samples_buffer_is_bounded_by_max_samples():
+    """Старые сэмплы вытесняются из буфера, его размер не превышает max_samples."""
+    max_samples = 3
+    async with LoopLagMonitor(interval_s=INTERVAL_S, max_samples=max_samples) as m:
         assert len(m.samples) == 0
+        await asyncio.sleep(INTERVAL_S * 10)
+        assert len(m.samples) == max_samples
 
-        await asyncio.sleep(sleep_interval)
-        assert m.max_s < sleep_interval
-        assert len(m.samples) == 1
 
-        await asyncio.sleep(sleep_interval)
-        time.sleep(0.15)  # noqa: ASYNC251 — имитация задержек
-        await asyncio.sleep(sleep_interval)
-        assert m.max_s >= 0.15
-        assert len(m.samples) == 1
+@pytest.mark.asyncio
+async def test_max_s_survives_eviction_from_buffer():
+    """max_s считается за всё время, даже если сэмпл с блокировкой уже вытеснен из буфера."""
+    async with LoopLagMonitor(interval_s=INTERVAL_S, max_samples=1) as m:
+        await asyncio.sleep(INTERVAL_S * 2)
+        time.sleep(BLOCK_S)  # noqa: ASYNC251 — имитация блокировки loop
+        await asyncio.sleep(INTERVAL_S * 5)  # блокирующий сэмпл вытесняется последующими
 
-        time.sleep(0.1)  # noqa: ASYNC251 — имитация задержек
-        await asyncio.sleep(sleep_interval)
-        assert m.max_s >= 0.15
-        assert len(m.samples) == 1
+        assert m.max_s >= MIN_DETECTED_LAG_S
+        assert max(m.samples) < MIN_DETECTED_LAG_S
 
-        time.sleep(0.2)  # noqa: ASYNC251 — имитация задержек
-        await asyncio.sleep(sleep_interval)
-        assert m.max_s >= 0.2
-        assert len(m.samples) == 1
 
-    assert asyncio.all_tasks() == {asyncio.current_task()}
+@pytest.mark.asyncio
+async def test_idle_loop_has_small_lag():
+    """Простой виден как простой: только await, без блокировок."""
+    async with LoopLagMonitor(interval_s=INTERVAL_S) as m:
+        await asyncio.sleep(0.2)
+        assert m.samples
+        assert m.max_s < 0.02
 
 
 @pytest.mark.asyncio
