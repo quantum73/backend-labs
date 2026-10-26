@@ -11,6 +11,7 @@ from labkit.aio import PERCENTILE_MAX_VALUE, PERCENTILE_MIN_VALUE, LoopLagMonito
 INVALID_PERCENTILE_VALUE_ERROR_MESSAGE = (
     f"percentile `p` parameter has to be in \\[{PERCENTILE_MIN_VALUE}, {PERCENTILE_MAX_VALUE}]"
 )
+INTERVAL_S = 0.01
 
 
 @pytest.mark.asyncio
@@ -170,6 +171,64 @@ async def test_loop_lag_monitor_leaks():
     with pytest.raises(ValueError, match="Broken!"):
         await _broken_logic()
 
+    assert asyncio.all_tasks() == {asyncio.current_task()}
+
+
+@pytest.mark.asyncio
+async def test_outer_cancel_inside_block_propagates():
+    """Внешнюю задачу отменили посреди тела блока: наружу CancelledError, задача монитора не утекла."""
+    entered = asyncio.Event()
+
+    async def _body():
+        async with LoopLagMonitor(interval_s=INTERVAL_S):
+            entered.set()
+            await asyncio.sleep(10)
+
+    task = asyncio.create_task(_body())
+    async with asyncio.timeout(1):
+        await entered.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled()
+    assert asyncio.all_tasks() == {asyncio.current_task()}
+
+
+@pytest.mark.asyncio
+async def test_outer_cancel_during_exit_propagates():
+    """
+    Регрессия: contextlib.suppress в __aexit__ глотал и отмену внешней задачи, если она приходила,
+    пока монитор завершался. Задача «завершалась нормально», TaskGroup и shutdown ждали бесконечно.
+    """
+    stopping = asyncio.Event()
+    finished_normally = False
+
+    class _SlowStopMonitor(LoopLagMonitor):
+        async def _run_monitor(self) -> None:
+            try:
+                await super()._run_monitor()
+            finally:
+                stopping.set()
+                await asyncio.sleep(10)  # медленная финализация, например сброс метрик
+
+    async def _body():
+        nonlocal finished_normally
+        async with _SlowStopMonitor(interval_s=INTERVAL_S):
+            await asyncio.sleep(INTERVAL_S * 2)  # монитор успевает стартовать
+        finished_normally = True
+
+    task = asyncio.create_task(_body())
+    async with asyncio.timeout(1):
+        await stopping.wait()  # _body уже в __aexit__ и ждёт монитор
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert task.cancelled()
+    assert not finished_normally
     assert asyncio.all_tasks() == {asyncio.current_task()}
 
 

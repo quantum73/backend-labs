@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import statistics
 from collections import deque
 from collections.abc import Sequence
@@ -95,5 +94,9 @@ class LoopLagMonitor:
     ) -> None:
         if self._task is not None:
             self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._task
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise
