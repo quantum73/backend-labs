@@ -1,0 +1,99 @@
+import asyncio
+import contextlib
+import statistics
+from collections import deque
+from collections.abc import Sequence
+from types import TracebackType
+from typing import Self
+
+PERCENTILE_MIN_VALUE, PERCENTILE_MAX_VALUE = 1, 99
+
+
+class LoopLagMonitor:
+    def __init__(self, *, interval_s: float = 0.01, max_samples: int = 100_000) -> None:
+        """
+        :param interval_s: Интервал проверок в секундах.
+        Значение по умолчанию (0.01s / 10ms) — оптимальный компромисс:
+        - Нагрузка на CPU мало заметна для приложения (<0.5%);
+        - В среднем лаг, считается критическим, если превышает 50-100ms,
+        поэтому текущий дефолт более чем с запасом будет ловить такие блокировки;
+        - В современных ОС системный планировщик имеет шаг дискретизации времени около 1-15ms,
+        поэтому нет смысла задавать interval_s равным или, тем более, меньшим чем шаг дискретизации.
+        :param max_samples: Количество хранимых сэмплов, по умолчанию - 100_000.
+        """
+        self._validate_init_params(interval_s=interval_s, max_samples=max_samples)
+
+        self._interval_s = interval_s
+        self._max_s = 0.0
+        self._samples: deque[float] = deque(maxlen=max_samples)
+        self._task: asyncio.Task[None] | None = None
+        self._used = False
+
+    @classmethod
+    def _validate_init_params(cls, *, interval_s: float, max_samples: int) -> None:
+        errors = []
+        if interval_s <= 0:
+            errors.append("`interval_s` has to be greater than 0")
+        if max_samples <= 0:
+            errors.append("`max_samples` has to be greater than 0")
+
+        if errors:
+            full_error_message = "; ".join(errors).strip()
+            raise ValueError(full_error_message)
+
+    @property
+    def samples(self) -> Sequence[float]:
+        return self._samples
+
+    @property
+    def max_s(self) -> float:
+        return self._max_s
+
+    @classmethod
+    def _percentile(cls, *, samples: Sequence[float], p: float) -> float:
+        """
+        Для расчёта используется функция quantiles из встроенной библиотеки statistics.
+        """
+        if p < PERCENTILE_MIN_VALUE or p > PERCENTILE_MAX_VALUE:
+            raise ValueError(f"percentile `p` parameter has to be in [{PERCENTILE_MIN_VALUE}, {PERCENTILE_MAX_VALUE}]")
+
+        if not samples:
+            return 0.0
+
+        pct_points = statistics.quantiles(samples, n=100, method="inclusive")
+        # Индекс идёт с 0, поэтому для p=1 (1-й перцентиль) должно быть 0, для p=99 (99-й перцентиль) - 98.
+        idx = int(p) - 1
+        return pct_points[idx]
+
+    def percentile(self, p: float) -> float:
+        return self._percentile(samples=self.samples, p=p)
+
+    async def _run_monitor(self) -> None:
+        loop = asyncio.get_running_loop()
+        while True:
+            started = loop.time()
+
+            await asyncio.sleep(self._interval_s)
+
+            lag_value = max(0.0, loop.time() - started - self._interval_s)
+            self._samples.append(lag_value)
+            self._max_s = max(self._max_s, lag_value)
+
+    async def __aenter__(self) -> Self:
+        if self._used:
+            raise RuntimeError("Repeatable call. This operation is denied!")
+
+        self._used = True
+        self._task = asyncio.create_task(self._run_monitor(), name="loop-lag-monitor")
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
