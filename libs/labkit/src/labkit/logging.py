@@ -1,5 +1,5 @@
 import logging
-from typing import Any
+from typing import Any, TextIO
 
 import structlog
 from structlog.processors import ExceptionRenderer
@@ -38,7 +38,7 @@ def mask_sensitive(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDic
     return passthrough | masked
 
 
-def configure_logging(*, level: str = "INFO", json: bool = True) -> None:
+def configure_logging(*, level: str = "INFO", json: bool = True, stream: TextIO | None = None) -> None:
     """Вызывается ОДИН раз в точке входа приложения. Библиотеки логирование не настраивают."""
     shared: list[structlog.typing.Processor] = [
         structlog.contextvars.merge_contextvars,  # поля из контекста: request_id, user_id
@@ -54,5 +54,6 @@ def configure_logging(*, level: str = "INFO", json: bool = True) -> None:
     structlog.configure(
         processors=[*shared, *renderer],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelNamesMapping()[level]),
+        logger_factory=structlog.PrintLoggerFactory(file=stream),
         cache_logger_on_first_use=True,
     )
