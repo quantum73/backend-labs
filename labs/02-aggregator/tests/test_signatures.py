@@ -5,7 +5,7 @@ import pytest
 from aggregator_app.models import Offer
 from aggregator_app.signatures import verify_signature
 from aggregator_app.upstream import compute_signature
-from aggregator_app.wire import parse_offer
+from aggregator_app.wire import InvalidOfferPayloadError, parse_offer
 
 
 def _offer(**overrides: object) -> Offer:
@@ -49,10 +49,12 @@ def test_parse_offer_ignores_unknown_fields():
         pytest.param(_body(price_kopecks=100.0), id="price-as-float"),
         pytest.param(_body(price_kopecks=True), id="price-as-bool"),
         pytest.param(_body(price_kopecks=0), id="price-zero"),
+        pytest.param(_body(price_kopecks=-1), id="price-negative"),
         pytest.param(_body(source=None), id="source-null"),
         pytest.param(json.dumps({"source": "alpha", "sku": "SKU-1"}).encode(), id="missing-fields"),
     ],
 )
 def test_parse_offer_rejects_malformed_payload(raw):
-    with pytest.raises(ValueError):  # noqa: PT011 — контракт parse_offer: любая порча даёт ValueError
+    with pytest.raises(InvalidOfferPayloadError) as exc_info:
         parse_offer(raw)
+    assert exc_info.value.__cause__ is not None

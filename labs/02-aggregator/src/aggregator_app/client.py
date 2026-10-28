@@ -12,7 +12,7 @@ import httpx
 from aggregator_app.models import Failed, FailReason, Fetched, Offer, SourceResult
 from aggregator_app.retry import full_jitter, is_retryable_status, parse_retry_after
 from aggregator_app.signatures import verify_signature
-from aggregator_app.wire import parse_offer
+from aggregator_app.wire import InvalidOfferPayloadError, parse_offer
 
 VERIFY_WORKERS_CAP = 4
 
@@ -158,7 +158,7 @@ class UpstreamClient:
 
         try:
             offer = parse_offer(response.content)
-        except ValueError:
+        except InvalidOfferPayloadError:
             return _AttemptFailure(FailReason.INVALID_RESPONSE)
 
         if (offer.source, offer.sku) != (source, sku):
