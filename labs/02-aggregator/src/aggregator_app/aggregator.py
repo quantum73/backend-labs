@@ -43,6 +43,13 @@ class SkuResult:
         Поэтому используем MappingProxyType, чтобы поле sources было read-only.
         Также явно делаем dict(self.sources), чтобы создался действительно новый объект в памяти.
         """
+        if self.offers_count != len([status for status in self.sources.values() if status == "ok"]):
+            raise ValueError("The `offers_count` differs from the `ok` values in `sources`.")
+        if self.best is None and self.offers_count > 0:
+            raise ValueError("`best` cannot be None if `offers_count` greater than 0")
+        if self.best is not None and self.sku != self.best.sku:
+            raise ValueError("`best` SKU must be equal result SKU")
+
         read_only_source = MappingProxyType(dict(self.sources))
         object.__setattr__(self, "sources", read_only_source)
 
@@ -72,13 +79,13 @@ def _validate_aggregate_sku_parameters(*, deadline_s: float, sources: Sequence[s
         raise ValueError("`sources` has duplicates")
 
 
-def calc_best_offer(offers_data: list[Offer]) -> Offer | None:
+def calc_best_offer(offers: Sequence[Offer]) -> Offer | None:
     """
     Детерминированный tie-break: При равной цене побеждает площадка, идущая первой по алфавиту.
     """
-    if not offers_data:
+    if not offers:
         return None
-    return min(offers_data, key=lambda offer: (offer.price_kopecks, offer.source))
+    return min(offers, key=lambda offer: (offer.price_kopecks, offer.source))
 
 
 async def aggregate_sku(
