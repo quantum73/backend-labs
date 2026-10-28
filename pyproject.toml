@@ -3,12 +3,14 @@ members = ["libs/*", "labs/*"]
 
 [dependency-groups]
 dev = [
+    "asgi-lifespan>=2.1.0",
     "mypy>=2.4.0",
     "pre-commit>=4.7.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-randomly>=5.0.0",
     "ruff>=0.17.2",
+    "testcontainers[postgres]>=4.15.0",
 ]
 
 [tool.ruff]
@@ -51,7 +53,7 @@ ignore = [
 "labs/02-aggregator/src/aggregator_app/legacy.py" = ["ALL"] # эталон "как было", не линтим
 
 [tool.ruff.lint.isort]
-known-first-party = ["labkit", "foundation_app", "aggregator_app"]
+known-first-party = ["labkit", "foundation_app", "aggregator_app", "orders_app"]
 
 [tool.ruff.format]
 docstring-code-format = true
