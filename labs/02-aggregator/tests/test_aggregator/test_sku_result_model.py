@@ -7,8 +7,8 @@ def test_sku_result_sources_field_as_read_only():
     obj = SkuResult(
         sku="sku-1",
         best=None,
-        offers_count=1,
-        sources={"alpha": "ok"},
+        offers_count=0,
+        sources={"alpha": "timeout"},
         elapsed_ms=0.1,
     )
 
@@ -19,18 +19,18 @@ def test_sku_result_sources_field_as_read_only():
 
 
 def test_sku_result_sources_field_as_read_only_with_outside_declared_dict():
-    sources_dict = {"alpha": "ok"}
+    sources_dict = {"alpha": "timeout"}
     obj = SkuResult(
         sku="sku-1",
         best=None,
-        offers_count=1,
+        offers_count=0,
         sources=sources_dict,
         elapsed_ms=0.1,
     )
 
-    sources_dict["alpha"] = "timeout"
-    sources_dict["beta"] = "ok"
+    sources_dict["alpha"] = "ok"
+    sources_dict["beta"] = "timeout"
 
     assert len(obj.sources) != len(sources_dict)
-    assert obj.sources["alpha"] == "ok"
+    assert obj.sources["alpha"] == "timeout"
     assert obj.sources.get("beta") is None

@@ -9,7 +9,7 @@ SIGNATURE = "signature"
 
 
 @pytest.mark.parametrize(
-    ("offers_data", "expected_best_offer_source"),
+    ("offers", "expected_best_offer_source"),
     [
         pytest.param([], None, id="empty-offers-list"),
         pytest.param(
@@ -33,8 +33,8 @@ SIGNATURE = "signature"
         ),
     ],
 )
-def test_calc_best_offer(offers_data: list[Offer], expected_best_offer_source: str | None):
+def test_calc_best_offer(offers: list[Offer], expected_best_offer_source: str | None):
     if expected_best_offer_source is None:
-        assert calc_best_offer(offers_data) is None
+        assert calc_best_offer(offers) is None
     else:
-        assert calc_best_offer(offers_data).source == expected_best_offer_source
+        assert calc_best_offer(offers).source == expected_best_offer_source
