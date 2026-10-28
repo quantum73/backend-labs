@@ -30,12 +30,16 @@ source = { editable = "labs/02-aggregator" }
 dependencies = [
     { name = "httpx" },
     { name = "labkit" },
+    { name = "pydantic" },
+    { name = "structlog" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "labkit", editable = "libs/labkit" },
+    { name = "pydantic", specifier = ">=2.11" },
+    { name = "structlog", specifier = ">=25.4" },
 ]
 
 [[package]]

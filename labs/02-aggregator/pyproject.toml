@@ -5,9 +5,12 @@ requires-python = ">=3.14"
 dependencies = [
     "httpx>=0.28",
     "labkit",
+    "pydantic>=2.11",
+    "structlog>=25.4",
 ]
 
 [project.scripts]
+aggregator = "aggregator_app.cli:main"
 aggregator-legacy = "aggregator_app.cli_legacy:main"
 
 [build-system]
