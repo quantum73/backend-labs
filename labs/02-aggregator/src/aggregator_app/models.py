@@ -25,6 +25,14 @@ class FailReason(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Fetched:
+    """
+    Успешный ответ площадки.
+    Гарантии (их даёт контракт OfferFetcher, а не тип):
+    - тело ответа разобрано и прошло схему;
+    - offer.source и offer.sku совпадают с запрошенными;
+    - подпись проверена.
+    """
+
     offer: Offer
     attempts: int
     elapsed_s: float
