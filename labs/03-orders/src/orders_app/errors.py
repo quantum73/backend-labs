@@ -124,13 +124,12 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     return response
 
 
-async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+async def _unhandled(request: Request, _exc: Exception) -> JSONResponse:
     """
     Exception:
     - 500 internal-error;
     - Трейсбек только в лог (logger.exception), клиенту ничего внутреннего.
     """
-    _ = exc
     request_id: str | None = getattr(request.state, REQUEST_ID_STATE_KEY, None)
     structlog.get_logger().exception("unhandled_error", path=request.url.path, request_id=request_id)
     response = problem(request, 500, "internal-error", "Internal server error")
