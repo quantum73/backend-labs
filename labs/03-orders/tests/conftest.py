@@ -13,7 +13,7 @@ PostgreSQL для тестов:
 
 import contextlib
 import os
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from typing import TYPE_CHECKING
 
 import httpx
@@ -66,8 +66,11 @@ async def client(settings: OrdersSettings, logging_configured: None) -> AsyncIte
             yield http
 
 
-@pytest_asyncio.fixture
-def client_factory(settings: OrdersSettings, logging_configured: None):
+@pytest.fixture
+def client_factory(
+    settings: OrdersSettings,
+    logging_configured: None,
+) -> Callable[..., contextlib.AbstractAsyncContextManager[httpx.AsyncClient]]:
     @contextlib.asynccontextmanager
     async def _make_client(
         app_settings: OrdersSettings | None = None,
