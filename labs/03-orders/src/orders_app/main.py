@@ -7,7 +7,7 @@ import structlog
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from orders_app.api import health_router
+from orders_app.api.health import health_router
 from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
 from orders_app.errors import install_problem_handlers
 from orders_app.middleware import RequestContextMiddleware
