@@ -14,7 +14,7 @@ PostgreSQL для тестов:
 import contextlib
 import os
 from collections.abc import AsyncIterator, Callable, Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -75,6 +75,7 @@ def client_factory(
     async def _make_client(
         app_settings: OrdersSettings | None = None,
         custom_routers: list[APIRouter] | None = None,
+        dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] | None = None,
     ) -> AsyncIterator[httpx.AsyncClient]:
         from orders_app.main import create_app  # noqa: PLC0415
 
@@ -83,6 +84,9 @@ def client_factory(
         if custom_routers:
             for router in custom_routers:
                 app.include_router(router)
+
+        if dependency_overrides:
+            app.dependency_overrides.update(dependency_overrides)
 
         async with LifespanManager(app) as manager:
             transport = httpx.ASGITransport(app=manager.app, raise_app_exceptions=False)
