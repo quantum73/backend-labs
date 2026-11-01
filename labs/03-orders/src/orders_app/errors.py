@@ -21,11 +21,10 @@ Content-Type: application/problem+json
 - Расширения: Любые дополнительные поля: errors для валидации, retry_after, balance.
 """
 
-import socket
+from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any
+from typing import Any, ClassVar
 
-import sqlalchemy.exc
 import structlog
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -45,6 +44,7 @@ class ProblemError(Exception):
     status: HTTPStatus = HTTPStatus.BAD_REQUEST
     slug: str = "bad-request"
     title: str = "Bad request"
+    headers: ClassVar[Mapping[str, str]] = {}
 
     def __init__(self, detail: str, **extensions: Any) -> None:
         super().__init__(detail)
@@ -70,6 +70,15 @@ class DBNotReadyError(ProblemError):
     title = "Database is unavailable or is not ready"
 
 
+class DatabaseUnavailableError(ProblemError):
+    """Не удалось получить соединение с БД."""
+
+    status = HTTPStatus.SERVICE_UNAVAILABLE
+    slug = "db-unavailable"
+    title = "Database is temporarily unavailable"
+    headers: ClassVar[Mapping[str, str]] = {"Retry-After": "2"}
+
+
 def problem(
     request: Request,
     status: int,
@@ -93,7 +102,9 @@ def problem(
 
 async def _problem_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, ProblemError)  # noqa: S101
-    return problem(request, exc.status, exc.slug, exc.title, exc.detail, **exc.extensions)
+    response = problem(request, exc.status, exc.slug, exc.title, exc.detail, **exc.extensions)
+    response.headers.update(exc.headers)
+    return response
 
 
 async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
@@ -126,16 +137,6 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     return response
 
 
-async def _db_unavailable(request: Request, _exc: Exception) -> JSONResponse:
-    """
-    Нет соединения с БД (отказ, DNS, исчерпан пул) → 503: это временная проблема, а не баг, клиент может повторить.
-    Остальные ошибки SQLAlchemy (IntegrityError, ProgrammingError) это баги, им место в 500.
-    """
-    structlog.get_logger().warning("db_unavailable", path=request.url.path, exc_info=True)
-    response = problem(request, 503, "db-unavailable", "Database is temporarily unavailable")
-    return response
-
-
 async def _unhandled(request: Request, _exc: Exception) -> JSONResponse:
     """
     Exception:
@@ -154,7 +155,4 @@ def install_problem_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ProblemError, _problem_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(StarletteHTTPException, _http_error)
-    app.add_exception_handler(ConnectionError, _db_unavailable)
-    app.add_exception_handler(socket.gaierror, _db_unavailable)
-    app.add_exception_handler(sqlalchemy.exc.TimeoutError, _db_unavailable)
     app.add_exception_handler(Exception, _unhandled)

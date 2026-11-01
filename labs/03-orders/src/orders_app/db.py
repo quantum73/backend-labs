@@ -1,13 +1,20 @@
 from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from typing import Annotated
 
+import sqlalchemy.exc
+import structlog
 from fastapi import Depends, Request
 from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, MetaData, Table, Text, Uuid
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-DB_UNAVAILABLE_ERRORS = (SQLAlchemyError, TimeoutError, OSError)
+from orders_app.errors import DatabaseUnavailableError
+
+DB_UNAVAILABLE_ERRORS = (sqlalchemy.exc.SQLAlchemyError, TimeoutError, OSError)
+DB_CONNECT_ERRORS = (OSError, sqlalchemy.exc.TimeoutError)
+
+logger = structlog.get_logger()
 
 metadata = MetaData()
 
@@ -63,7 +70,13 @@ class Database:
 
 async def get_db_conn(request: Request) -> AsyncIterator[AsyncConnection]:
     engine: AsyncEngine = request.state.engine
-    async with engine.begin() as conn:
+    async with AsyncExitStack() as stack:
+        try:
+            conn = await stack.enter_async_context(engine.begin())
+        except DB_CONNECT_ERRORS as exc:
+            # Ожидаемая ситуация при сбое БД: одна строка без трейсбека, чтобы не забить логи
+            logger.warning("db_unavailable", error_type=type(exc).__name__, error=str(exc))
+            raise DatabaseUnavailableError(detail="Could not get a database connection") from exc
         yield conn
 
 

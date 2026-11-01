@@ -1,15 +1,17 @@
+import asyncio
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 import pytest
-from fastapi import Request
+from fastapi import APIRouter, Request
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from orders_app.db import get_db_conn
+from orders_app.db import DBConn, get_db_conn
 from orders_app.settings import OrdersSettings
 from tests.acceptance.helpers import assert_problem, create, order_body
 from tests.helpers import db_queries_count
@@ -130,17 +132,78 @@ async def test_list_orders_requires_customer_id(client: httpx.AsyncClient) -> No
     assert_problem(await client.get("/v1/orders"), 422, "validation-error")
 
 
-async def test_orders_with_unavailable_database_is_503(client_factory) -> None:
-    app_settings = OrdersSettings(
+def _unreachable_db_settings(host_port: str, **overrides: Any) -> OrdersSettings:
+    return OrdersSettings(
         _env_file=None,
         env="test",
-        database_url=SecretStr("postgresql+asyncpg://u:p@127.0.0.1:1/db"),
+        database_url=SecretStr(f"postgresql+asyncpg://u:p@{host_port}/db"),
+        **overrides,
     )
-    async with client_factory(app_settings=app_settings) as client:
-        response = await client.get(f"/v1/orders/{uuid.uuid4()}", headers={"x-request-id": "req-503"})
 
+
+def _assert_db_unavailable(response: httpx.Response) -> None:
     assert_problem(response, 503, "db-unavailable")
+    assert response.headers["retry-after"] == "2"
+
+
+@pytest.mark.parametrize(
+    ("host_port", "error_type"),
+    [
+        pytest.param("127.0.0.1:1", "ConnectionRefusedError", id="connection-refused"),
+        pytest.param("10.255.255.1:5432", "TimeoutError", id="blackhole"),
+    ],
+)
+async def test_orders_with_unavailable_database_is_503(
+    client_factory,
+    capsys,
+    host_port: str,
+    error_type: str,
+) -> None:
+    connect_timeout_s = 0.3
+    app_settings = _unreachable_db_settings(host_port, db_connect_timeout_s=connect_timeout_s)
+    async with client_factory(app_settings=app_settings) as client:
+        capsys.readouterr()
+        started = time.perf_counter()
+        response = await client.get(f"/v1/orders/{uuid.uuid4()}", headers={"x-request-id": "req-503"})
+        elapsed = time.perf_counter() - started
+
+    _assert_db_unavailable(response)
     assert response.headers["x-request-id"] == "req-503"
+    assert elapsed < connect_timeout_s + 1, f"ответ через {elapsed:.1f}s"
+
+    [event] = [e for e in _read_log_events(capsys) if e["event"] == "db_unavailable"]
+    assert event["error_type"] == error_type
+    assert event["request_id"] == "req-503"
+    assert "exception" not in event
+
+
+async def test_pool_exhausted_is_503_after_pool_timeout(
+    client_factory,
+    settings: OrdersSettings,
+) -> None:
+    pool_timeout_s = 0.3
+    conn_taken, release = asyncio.Event(), asyncio.Event()
+
+    async def _hold_connection(conn: DBConn) -> None:
+        conn_taken.set()
+        await release.wait()
+
+    holder = APIRouter()
+    holder.add_api_route("/test/hold-connection", _hold_connection, methods=["GET"])
+    app_settings = settings.model_copy(update={"db_pool_size": 1, "db_pool_timeout_s": pool_timeout_s})
+
+    async with client_factory(app_settings=app_settings, custom_routers=[holder]) as client:
+        hold_request = asyncio.create_task(client.get("/test/hold-connection"))
+        await conn_taken.wait()  # единственное соединение пула занято
+
+        started = time.perf_counter()
+        response = await client.get(f"/v1/orders/{uuid.uuid4()}")
+        elapsed = time.perf_counter() - started
+        release.set()
+        assert (await hold_request).status_code == 200
+
+    _assert_db_unavailable(response)
+    assert elapsed < pool_timeout_s + 1, f"ответ через {elapsed:.1f}s"
 
 
 class _CommitFailedError(Exception): ...
