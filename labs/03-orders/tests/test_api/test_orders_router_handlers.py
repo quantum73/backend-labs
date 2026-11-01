@@ -97,7 +97,7 @@ async def test_list_orders_default_limit_from_settings(
     settings: OrdersSettings,
 ) -> None:
     customer_id = str(uuid.uuid4())
-    app_settings = settings.model_copy(update={"page_default_limit": 2})
+    app_settings = OrdersSettings.model_validate({**settings.model_dump(), "page_default_limit": 2})
     async with client_factory(app_settings=app_settings) as client:
         for _ in range(3):
             await create(client, order_body(customer_id))
@@ -190,7 +190,13 @@ async def test_pool_exhausted_is_503_after_pool_timeout(
 
     holder = APIRouter()
     holder.add_api_route("/test/hold-connection", _hold_connection, methods=["GET"])
-    app_settings = settings.model_copy(update={"db_pool_size": 1, "db_pool_timeout_s": pool_timeout_s})
+    app_settings = OrdersSettings.model_validate(
+        {
+            **settings.model_dump(),
+            "db_pool_size": 1,
+            "db_pool_timeout_s": pool_timeout_s,
+        }
+    )
 
     async with client_factory(app_settings=app_settings, custom_routers=[holder]) as client:
         hold_request = asyncio.create_task(client.get("/test/hold-connection"))

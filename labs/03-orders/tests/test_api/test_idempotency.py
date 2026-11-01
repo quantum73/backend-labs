@@ -65,7 +65,12 @@ async def test_replay_waiting_for_unfinished_original_is_409(
     capsys,
 ) -> None:
     lock_timeout_s = 0.3
-    app_settings = settings.model_copy(update={"db_lock_timeout_ms": int(lock_timeout_s * 1000)})
+    app_settings = OrdersSettings.model_validate(
+        {
+            **settings.model_dump(),
+            "db_lock_timeout_ms": int(lock_timeout_s * 1000),
+        }
+    )
     body, key = order_body(), new_key()
 
     async with client_factory(app_settings=app_settings) as client:
