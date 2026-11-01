@@ -1,12 +1,37 @@
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Annotated
 
-from sqlalchemy import MetaData
+from fastapi import Depends, Request
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, MetaData, Table, Text, Uuid
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+
+DB_UNAVAILABLE_ERRORS = (SQLAlchemyError, TimeoutError, OSError)
 
 metadata = MetaData()
 
-DB_UNAVAILABLE_ERRORS = (SQLAlchemyError, TimeoutError, OSError)
+orders = Table(
+    "orders",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("customer_id", Uuid, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("currency", Text, nullable=False),
+    Column("total_kopecks", BigInteger, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("ix_orders_customer_created_id", orders.c.customer_id, orders.c.created_at.desc(), orders.c.id.desc())
+
+order_items = Table(
+    "order_items",
+    metadata,
+    Column("order_id", Uuid, ForeignKey("orders.id", ondelete="CASCADE"), primary_key=True),
+    Column("line_no", Integer, primary_key=True),
+    Column("sku", Text, nullable=False),
+    Column("quantity", Integer, nullable=False),
+    Column("unit_price_kopecks", BigInteger, nullable=False),
+)
 
 
 @dataclass
@@ -34,3 +59,12 @@ class Database:
             await conn.run_sync(metadata.create_all)
 
         self.schema_ready = True
+
+
+async def get_db_conn(request: Request) -> AsyncIterator[AsyncConnection]:
+    engine: AsyncEngine = request.state.engine
+    async with engine.begin() as conn:
+        yield conn
+
+
+DBConn = Annotated[AsyncConnection, Depends(get_db_conn, scope="function")]
