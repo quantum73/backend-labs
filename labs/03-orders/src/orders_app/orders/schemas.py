@@ -8,7 +8,7 @@ SkuStr = Annotated[str, StringConstraints(pattern=r"^[A-Z0-9][A-Z0-9-]{0,63}$")]
 
 
 class OrderStatus(StrEnum):
-    created = auto()
+    CREATED = auto()
 
 
 class CreateOrderRequest(BaseModel):

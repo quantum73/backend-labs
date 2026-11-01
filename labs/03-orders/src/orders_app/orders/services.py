@@ -47,55 +47,57 @@ def _to_order_response(order_row: RowMapping, items: list[OrderItemOut]) -> Orde
     return OrderResponse.model_validate({**order_row, "items": items})
 
 
-class OrderService:
-    @staticmethod
-    async def get_paginated_orders(
-        conn: AsyncConnection,
-        *,
-        customer_id: uuid.UUID,
-        limit: int,
-    ) -> PaginatedOrderResponse:
-        query = (
-            select(orders)
-            .where(orders.c.customer_id == customer_id)
-            .order_by(orders.c.created_at.desc(), orders.c.id.desc())
-            .limit(limit)
-        )
-        order_rows = (await conn.execute(query)).mappings().all()
-        items_by_order = await _get_order_items(conn, order_ids=[row["id"] for row in order_rows])
-        return PaginatedOrderResponse(
-            items=[_to_order_response(row, items_by_order[row["id"]]) for row in order_rows],
-            next_cursor=None,
-        )
+async def get_paginated_orders(
+    conn: AsyncConnection,
+    *,
+    customer_id: uuid.UUID,
+    limit: int,
+) -> PaginatedOrderResponse:
+    query = (
+        select(orders)
+        .where(orders.c.customer_id == customer_id)
+        .order_by(orders.c.created_at.desc(), orders.c.id.desc())
+        .limit(limit)
+    )
+    order_rows = (await conn.execute(query)).mappings().all()
+    items_by_order = await _get_order_items(conn, order_ids=[row["id"] for row in order_rows])
+    return PaginatedOrderResponse(
+        items=[_to_order_response(row, items_by_order[row["id"]]) for row in order_rows],
+        next_cursor=None,
+    )
 
-    @staticmethod
-    async def get_order_by_id(conn: AsyncConnection, *, order_id: uuid.UUID) -> OrderResponse:
-        query = select(orders).where(orders.c.id == order_id)
-        order_row = (await conn.execute(query)).mappings().one_or_none()
-        if order_row is None:
-            raise NotFoundError(detail=f"Order {order_id} not found")
 
-        items_by_order = await _get_order_items(conn, order_ids=[order_id])
-        return _to_order_response(order_row, items_by_order[order_id])
+async def get_order_by_id(conn: AsyncConnection, *, order_id: uuid.UUID) -> OrderResponse:
+    query = select(orders).where(orders.c.id == order_id)
+    order_row = (await conn.execute(query)).mappings().one_or_none()
+    if order_row is None:
+        raise NotFoundError(detail=f"Order {order_id} not found")
 
-    @staticmethod
-    async def create_order(conn: AsyncConnection, *, create_order_payload: CreateOrderRequest) -> OrderResponse:
-        order = OrderResponse(
-            id=uuid.uuid7(),
-            customer_id=create_order_payload.customer_id,
-            status=OrderStatus.created,
-            currency=create_order_payload.currency,
-            items=[OrderItemOut.model_validate(item, from_attributes=True) for item in create_order_payload.items],
-            total_kopecks=sum(item.unit_price_kopecks * item.quantity for item in create_order_payload.items),
-            created_at=datetime.now(UTC),
-        )
-        await conn.execute(insert(orders).values(order.model_dump(exclude={"items"})))
+    items_by_order = await _get_order_items(conn, order_ids=[order_id])
+    return _to_order_response(order_row, items_by_order[order_id])
 
-        await conn.execute(
-            insert(order_items),
-            [
-                {"order_id": order.id, "line_no": line_no, **item.model_dump()}
-                for line_no, item in enumerate(order.items, start=1)
-            ],
-        )
-        return order
+
+async def create_order(conn: AsyncConnection, *, create_order_payload: CreateOrderRequest) -> OrderResponse:
+    order_values = {
+        "id": uuid.uuid7(),
+        "customer_id": create_order_payload.customer_id,
+        "status": OrderStatus.CREATED,
+        "currency": create_order_payload.currency,
+        "total_kopecks": sum(item.unit_price_kopecks * item.quantity for item in create_order_payload.items),
+        "created_at": datetime.now(UTC),
+    }
+    item_values = [
+        {
+            "order_id": order_values["id"],
+            "line_no": line_no,
+            "sku": item.sku,
+            "quantity": item.quantity,
+            "unit_price_kopecks": item.unit_price_kopecks,
+        }
+        for line_no, item in enumerate(create_order_payload.items, start=1)
+    ]
+    await conn.execute(insert(orders).values(order_values))
+    await conn.execute(insert(order_items), item_values)
+
+    items = [OrderItemOut.model_validate(item, from_attributes=True) for item in create_order_payload.items]
+    return OrderResponse.model_validate({**order_values, "items": items})
