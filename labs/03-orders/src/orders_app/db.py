@@ -6,7 +6,21 @@ from typing import Annotated
 import sqlalchemy.exc
 import structlog
 from fastapi import Depends, Request
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Index, Integer, MetaData, Table, Text, Uuid
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    SmallInteger,
+    Table,
+    Text,
+    Uuid,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from orders_app.errors import DatabaseUnavailableError
@@ -39,6 +53,23 @@ order_items = Table(
     Column("quantity", Integer, nullable=False),
     Column("unit_price_kopecks", BigInteger, nullable=False),
 )
+
+idempotency_keys = Table(
+    "idempotency_keys",
+    metadata,
+    Column("scope", Text, primary_key=True),
+    Column("key", Text, primary_key=True),
+    Column("request_hash", Text, nullable=False),
+    Column("response_status", SmallInteger, nullable=True),
+    Column("response_body", JSONB, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "(response_status IS NULL) = (response_body IS NULL)",
+        name="ck_idempotency_keys_response_complete",
+    ),
+)
+Index("ix_idempotency_keys_expires_at", idempotency_keys.c.expires_at)
 
 
 @dataclass
