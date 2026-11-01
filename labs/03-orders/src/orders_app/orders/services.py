@@ -7,12 +7,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import sqlalchemy
+import sqlalchemy.exc
 from sqlalchemy import RowMapping, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from orders_app.db import idempotency_keys, order_items, orders
-from orders_app.errors import IdempotencyKeyReuseError, NotFoundError
+from orders_app.errors import IdempotencyKeyInProgressError, IdempotencyKeyReuseError, NotFoundError
 from orders_app.orders.schemas import (
     CreateOrderRequest,
     IdempotencyKeyScope,
@@ -21,6 +22,8 @@ from orders_app.orders.schemas import (
     OrderStatus,
     PaginatedOrderResponse,
 )
+
+LOCK_NOT_AVAILABLE = "55P03"
 
 
 def request_fingerprint(body: CreateOrderRequest) -> str:
@@ -158,8 +161,17 @@ async def idempotent_create_order(
         )
         .returning(idempotency_keys.c.key)
     )
-    # Если этот ключ сейчас вставляет другая транзакция, INSERT ждёт её COMMIT/ROLLBACK
-    if (await conn.execute(claim)).first() is None:
+    # Если этот ключ сейчас вставляет другая транзакция, INSERT ждёт её COMMIT/ROLLBACK, но не дольше lock_timeout
+    try:
+        claimed = (await conn.execute(claim)).first()
+    except sqlalchemy.exc.DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == LOCK_NOT_AVAILABLE:
+            raise IdempotencyKeyInProgressError(
+                detail="The original request with this Idempotency-Key has not finished yet, retry later",
+            ) from None
+        raise
+
+    if claimed is None:
         # response_status не читаем. Единственная операция под ключом всегда отвечает 201.
         # Он пригодится, когда под ключом появятся операции с другими статусами ответа.
         stored = (

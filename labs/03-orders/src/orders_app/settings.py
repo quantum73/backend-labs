@@ -1,7 +1,7 @@
 from typing import Annotated, Any
 
 import sqlalchemy
-from pydantic import Field, PostgresDsn, SecretStr, TypeAdapter, ValidationError, field_validator
+from pydantic import Field, PostgresDsn, SecretStr, TypeAdapter, ValidationError, field_validator, model_validator
 
 from labkit.settings import AppSettings
 
@@ -9,6 +9,7 @@ ASYNCPG_DRIVER_NAME = "postgresql+asyncpg"
 
 DbPoolSize = Annotated[int, Field(default=10, ge=1)]
 DbStatementTimeoutMs = Annotated[int, Field(default=2000, ge=1)]
+DbLockTimeoutMs = Annotated[int, Field(default=1000, ge=1)]
 DbConnectTimeoutS = Annotated[float, Field(default=1.0, gt=0)]
 DbPoolTimeoutS = Annotated[float, Field(default=1.0, gt=0)]
 IdempotencyTTLs = Annotated[int, Field(default=86400, ge=60)]
@@ -25,6 +26,9 @@ class OrdersSettings(AppSettings):
     db_pool_size: DbPoolSize
     # Страховка от зависших SQL-запросов
     db_statement_timeout_ms: DbStatementTimeoutMs
+    # Тауймаут на ожидание блокировки. Должен быть меньше statement_timeout,
+    # чтобы ожидание блокировки заканчивалось своей ошибкой 55P03 → 409, а не общим statement_timeout → 500.
+    db_lock_timeout_ms: DbLockTimeoutMs
     # Худший случай запроса к БД: pool_timeout + connect_timeout + statement_timeout (1 + 1 + 2 = 4 с).
     # Общий таймаут должен быть меньше таймаута клиента/балансировщика (5–10 с), иначе клиент уйдёт с 504,
     # а воркер будет работать впустую.
@@ -46,11 +50,20 @@ class OrdersSettings(AppSettings):
 
         return value
 
+    @model_validator(mode="after")
+    def validate_lock_timeout(self) -> OrdersSettings:
+        if self.db_lock_timeout_ms >= self.db_statement_timeout_ms:
+            raise ValueError("`db_lock_timeout_ms` must be less than `db_statement_timeout_ms`")
+        return self
+
     @property
     def db_connect_args(self) -> dict[str, Any]:
         return {
             "timeout": self.db_connect_timeout_s,
-            "server_settings": {"statement_timeout": str(self.db_statement_timeout_ms)},
+            "server_settings": {
+                "statement_timeout": str(self.db_statement_timeout_ms),
+                "lock_timeout": str(self.db_lock_timeout_ms),
+            },
         }
 
     @property

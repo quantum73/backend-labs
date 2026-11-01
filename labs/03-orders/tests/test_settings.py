@@ -17,6 +17,7 @@ def test_settings(monkeypatch):
     monkeypatch.setenv("APP_PAGE_DEFAULT_LIMIT", correct_int_value_for_env)
     monkeypatch.setenv("APP_DB_CONNECT_TIMEOUT_S", "0.5")
     monkeypatch.setenv("APP_DB_POOL_TIMEOUT_S", "3")
+    monkeypatch.setenv("APP_DB_LOCK_TIMEOUT_MS", "30")
 
     settings = OrdersSettings(_env_file=None)
     assert isinstance(settings.database_url, SecretStr)
@@ -27,6 +28,7 @@ def test_settings(monkeypatch):
     assert settings.page_default_limit == int(correct_int_value_for_env)
     assert settings.db_connect_timeout_s == 0.5
     assert settings.db_pool_timeout_s == 3.0
+    assert settings.db_lock_timeout_ms == 30
 
 
 @pytest.mark.parametrize(
@@ -122,6 +124,21 @@ def test_settings(monkeypatch):
             pytest.raises(ValidationError),
             id="non-number-pool-timeout",
         ),
+        pytest.param(
+            [("APP_DB_LOCK_TIMEOUT_MS", "0")],
+            pytest.raises(ValidationError),
+            id="zero-lock-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_LOCK_TIMEOUT_MS", "2000")],
+            pytest.raises(ValidationError, match="must be less than `db_statement_timeout_ms`"),
+            id="lock-timeout-equals-statement-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_LOCK_TIMEOUT_MS", "500"), ("APP_DB_STATEMENT_TIMEOUT_MS", "400")],
+            pytest.raises(ValidationError, match="must be less than `db_statement_timeout_ms`"),
+            id="lock-timeout-above-statement-timeout",
+        ),
     ],
 )
 def test_settings_validations(
@@ -155,7 +172,7 @@ def test_settings_validations(
         ),
         pytest.param(
             "postgresql+asyncpg://user:pwd@localhost:5555/db",
-            {"timeout": 1.0, "server_settings": {"statement_timeout": "2000"}},
+            {"timeout": 1.0, "server_settings": {"statement_timeout": "2000", "lock_timeout": "1000"}},
             contextlib.nullcontext(),
             id="asyncpg-driver",
         ),

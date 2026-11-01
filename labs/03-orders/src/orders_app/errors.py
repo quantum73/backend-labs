@@ -70,6 +70,15 @@ class IdempotencyKeyReuseError(ProblemError):
     title = "Idempotency-Key was already used with a different request"
 
 
+class IdempotencyKeyInProgressError(ProblemError):
+    """Запрос с этим ключом ещё выполняется: повтор не дождался оригинала за lock_timeout."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "idempotency-key-in-progress"
+    title = "A request with this Idempotency-Key is still in progress"
+    headers: ClassVar[Mapping[str, str]] = {"Retry-After": "1"}
+
+
 class DBNotReadyError(ProblemError):
     status = HTTPStatus.SERVICE_UNAVAILABLE
     slug = "not-ready"
