@@ -11,6 +11,7 @@ from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
 from orders_app.errors import install_problem_handlers
 from orders_app.health import router as health_router
 from orders_app.middleware import RequestContextMiddleware
+from orders_app.orders.api import router as orders_router
 from orders_app.settings import OrdersSettings
 
 METADATA_CREATE_TIMEOUT_S = 2
@@ -65,4 +66,5 @@ def create_app(settings: OrdersSettings) -> FastAPI:
     install_problem_handlers(app)
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
+    app.include_router(orders_router)
     return app
