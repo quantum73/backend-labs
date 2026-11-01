@@ -21,9 +21,11 @@ Content-Type: application/problem+json
 - Расширения: Любые дополнительные поля: errors для валидации, retry_after, balance.
 """
 
+import socket
 from http import HTTPStatus
 from typing import Any
 
+import sqlalchemy.exc
 import structlog
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -124,6 +126,16 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     return response
 
 
+async def _db_unavailable(request: Request, _exc: Exception) -> JSONResponse:
+    """
+    Нет соединения с БД (отказ, DNS, исчерпан пул) → 503: это временная проблема, а не баг, клиент может повторить.
+    Остальные ошибки SQLAlchemy (IntegrityError, ProgrammingError) это баги, им место в 500.
+    """
+    structlog.get_logger().warning("db_unavailable", path=request.url.path, exc_info=True)
+    response = problem(request, 503, "db-unavailable", "Database is temporarily unavailable")
+    return response
+
+
 async def _unhandled(request: Request, _exc: Exception) -> JSONResponse:
     """
     Exception:
@@ -142,4 +154,7 @@ def install_problem_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ProblemError, _problem_error)
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.add_exception_handler(StarletteHTTPException, _http_error)
+    app.add_exception_handler(ConnectionError, _db_unavailable)
+    app.add_exception_handler(socket.gaierror, _db_unavailable)
+    app.add_exception_handler(sqlalchemy.exc.TimeoutError, _db_unavailable)
     app.add_exception_handler(Exception, _unhandled)
