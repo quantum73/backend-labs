@@ -6,18 +6,18 @@ from sqlalchemy import text
 from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
 from orders_app.errors import DBNotReadyError
 
-health_router = APIRouter(tags=["Health"])
+router = APIRouter(tags=["Health"])
 
 DATABASE_CHECK_TIMEOUT_S = 1
 _OK_RESPONSE_PAYLOAD = {"status": "ok"}
 
 
-@health_router.get("/livez", status_code=status.HTTP_200_OK)
+@router.get("/livez", status_code=status.HTTP_200_OK)
 async def livez() -> dict[str, str]:
     return _OK_RESPONSE_PAYLOAD
 
 
-@health_router.get("/readyz", status_code=status.HTTP_200_OK)
+@router.get("/readyz", status_code=status.HTTP_200_OK)
 async def readyz(request: Request) -> dict[str, str]:
     """
     Готовность = БД отвечает и схема создана.
