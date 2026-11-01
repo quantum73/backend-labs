@@ -35,7 +35,7 @@ async def _paginated_orders_request(client: httpx.AsyncClient, customer_id: str,
 
 
 async def test_get_order_by_id(client: httpx.AsyncClient, capsys) -> None:
-    created_response_data = (await client.post("/v1/orders", json=order_body())).json()
+    created_response_data = (await create(client, order_body())).json()
     response = await client.get(f"/v1/orders/{created_response_data['id']}")
     assert response.status_code == 200
     assert response.json() == created_response_data
@@ -52,7 +52,7 @@ async def test_get_order_by_id(client: httpx.AsyncClient, capsys) -> None:
 )
 async def test_create_order_with_bad_sku(client: httpx.AsyncClient, sku: str) -> None:
     problem = assert_problem(
-        await client.post("/v1/orders", json=order_body(items=_items(sku))),
+        await create(client, order_body(items=_items(sku))),
         422,
         "validation-error",
     )

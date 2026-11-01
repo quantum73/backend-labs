@@ -11,6 +11,10 @@ class OrderStatus(StrEnum):
     CREATED = auto()
 
 
+class IdempotencyKeyScope(StrEnum):
+    CREATE_ORDER = auto()
+
+
 class CreateOrderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

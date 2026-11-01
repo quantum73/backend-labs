@@ -1,12 +1,19 @@
+import re
 import uuid
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
-from fastapi import APIRouter, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
 from orders_app.db import DBConn
+from orders_app.errors import IdempotencyKeyRequiredError
 from orders_app.orders import services as order_service
 from orders_app.orders.schemas import CreateOrderRequest, OrderResponse, PaginatedOrderResponse
 from orders_app.pagination import PageLimitFromQuery
+
+if TYPE_CHECKING:
+    from orders_app.settings import OrdersSettings
+
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
 router = APIRouter(prefix="/v1/orders", tags=["Orders"])
 
@@ -36,13 +43,32 @@ async def get_orders(
     return await order_service.get_paginated_orders(conn, customer_id=customer_id, limit=limit)
 
 
+def _get_idempotency_key(idempotency_key: str | None = Header(default=None)) -> str:
+    if not idempotency_key:
+        raise IdempotencyKeyRequiredError(detail="Idempotency-Key header is required")
+    if not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
+        raise IdempotencyKeyRequiredError(
+            detail="Incorrect Idempotency-Key header. Correct template: ^[A-Za-z0-9_-]{8,64}$",
+        )
+    return idempotency_key
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=OrderResponse)
 async def create_order(
     request: Request,
     response: Response,
     create_order_request: CreateOrderRequest,
+    idempotency_key: Annotated[str, Depends(_get_idempotency_key)],
     conn: DBConn,
 ) -> OrderResponse:
-    order = await order_service.create_order(conn, create_order_payload=create_order_request)
-    response.headers["Location"] = request.app.url_path_for("get_order", order_id=order.id)
-    return order
+    settings: OrdersSettings = request.state.settings
+    resp = await order_service.idempotent_create_order(
+        conn,
+        create_order_payload=create_order_request,
+        idempotency_key=idempotency_key,
+        idempotency_ttl_s=settings.idempotency_ttl_s,
+    )
+    response.headers["Location"] = request.app.url_path_for("get_order", order_id=resp.order.id)
+    if resp.replayed:
+        response.headers["Idempotent-Replayed"] = "true"
+    return resp.order

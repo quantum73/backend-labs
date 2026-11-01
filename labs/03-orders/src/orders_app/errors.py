@@ -58,6 +58,12 @@ class NotFoundError(ProblemError):
     title = "Resource not found"
 
 
+class IdempotencyKeyRequiredError(ProblemError):
+    status = HTTPStatus.BAD_REQUEST
+    slug = "idempotency-key-required"
+    title = "Idempotency-Key is incorrect or not given"
+
+
 class IdempotencyKeyReuseError(ProblemError):
     status = HTTPStatus.UNPROCESSABLE_CONTENT
     slug = "idempotency-key-reuse"
