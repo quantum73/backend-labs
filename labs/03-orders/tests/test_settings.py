@@ -1,4 +1,5 @@
 import contextlib
+from typing import Any
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -14,6 +15,8 @@ def test_settings(monkeypatch):
     monkeypatch.setenv("APP_DB_STATEMENT_TIMEOUT_MS", correct_int_value_for_env)
     monkeypatch.setenv("APP_IDEMPOTENCY_TTL_S", correct_int_value_for_env)
     monkeypatch.setenv("APP_PAGE_DEFAULT_LIMIT", correct_int_value_for_env)
+    monkeypatch.setenv("APP_DB_CONNECT_TIMEOUT_S", "0.5")
+    monkeypatch.setenv("APP_DB_POOL_TIMEOUT_S", "3")
 
     settings = OrdersSettings(_env_file=None)
     assert isinstance(settings.database_url, SecretStr)
@@ -22,6 +25,8 @@ def test_settings(monkeypatch):
     assert settings.db_statement_timeout_ms == int(correct_int_value_for_env)
     assert settings.idempotency_ttl_s == int(correct_int_value_for_env)
     assert settings.page_default_limit == int(correct_int_value_for_env)
+    assert settings.db_connect_timeout_s == 0.5
+    assert settings.db_pool_timeout_s == 3.0
 
 
 @pytest.mark.parametrize(
@@ -87,6 +92,36 @@ def test_settings(monkeypatch):
             pytest.raises(ValidationError),
             id="huge-page-default-limit",
         ),
+        pytest.param(
+            [("APP_DB_CONNECT_TIMEOUT_S", "0")],
+            pytest.raises(ValidationError),
+            id="zero-connect-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_CONNECT_TIMEOUT_S", "-1")],
+            pytest.raises(ValidationError),
+            id="negative-connect-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_CONNECT_TIMEOUT_S", "-1")],
+            pytest.raises(ValidationError),
+            id="non-number-connect-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_POOL_TIMEOUT_S", "0")],
+            pytest.raises(ValidationError),
+            id="zero-pool-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_POOL_TIMEOUT_S", "-1")],
+            pytest.raises(ValidationError),
+            id="negative-pool-timeout",
+        ),
+        pytest.param(
+            [("APP_DB_POOL_TIMEOUT_S", "abc")],
+            pytest.raises(ValidationError),
+            id="non-number-pool-timeout",
+        ),
     ],
 )
 def test_settings_validations(
@@ -120,7 +155,7 @@ def test_settings_validations(
         ),
         pytest.param(
             "postgresql+asyncpg://user:pwd@localhost:5555/db",
-            {"server_settings": {"statement_timeout": "2000"}},
+            {"timeout": 1.0, "server_settings": {"statement_timeout": "2000"}},
             contextlib.nullcontext(),
             id="asyncpg-driver",
         ),
@@ -141,7 +176,7 @@ def test_settings_validations(
 def test_connect_args(
     monkeypatch,
     db_url: str,
-    expected_db_connect_args: dict[str, dict[str, str]] | None,
+    expected_db_connect_args: dict[str, Any] | None,
     expected_exception,
 ):
     monkeypatch.setenv("APP_DATABASE_URL", db_url)

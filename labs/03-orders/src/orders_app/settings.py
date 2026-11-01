@@ -9,6 +9,8 @@ ASYNCPG_DRIVER_NAME = "postgresql+asyncpg"
 
 DbPoolSize = Annotated[int, Field(default=10, ge=1)]
 DbStatementTimeoutMs = Annotated[int, Field(default=2000, ge=1)]
+DbConnectTimeoutS = Annotated[float, Field(default=1.0, gt=0)]
+DbPoolTimeoutS = Annotated[float, Field(default=1.0, gt=0)]
 IdempotencyTTLs = Annotated[int, Field(default=86400, ge=60)]
 PageDefaultLimit = Annotated[int, Field(default=20, ge=1, le=100)]
 
@@ -23,6 +25,11 @@ class OrdersSettings(AppSettings):
     db_pool_size: DbPoolSize
     # Страховка от зависших SQL-запросов
     db_statement_timeout_ms: DbStatementTimeoutMs
+    # Худший случай запроса к БД: pool_timeout + connect_timeout + statement_timeout (1 + 1 + 2 = 4 с).
+    # Общий таймаут должен быть меньше таймаута клиента/балансировщика (5–10 с), иначе клиент уйдёт с 504,
+    # а воркер будет работать впустую.
+    db_connect_timeout_s: DbConnectTimeoutS
+    db_pool_timeout_s: DbPoolTimeoutS
     idempotency_ttl_s: IdempotencyTTLs
     page_default_limit: PageDefaultLimit
 
@@ -41,7 +48,10 @@ class OrdersSettings(AppSettings):
 
     @property
     def db_connect_args(self) -> dict[str, Any]:
-        return {"server_settings": {"statement_timeout": str(self.db_statement_timeout_ms)}}
+        return {
+            "timeout": self.db_connect_timeout_s,
+            "server_settings": {"statement_timeout": str(self.db_statement_timeout_ms)},
+        }
 
     @property
     def masked_database_url(self) -> str:

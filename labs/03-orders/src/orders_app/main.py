@@ -39,6 +39,8 @@ def create_app(settings: OrdersSettings) -> FastAPI:
         engine = create_async_engine(
             settings.database_url.get_secret_value(),
             pool_size=settings.db_pool_size,
+            max_overflow=0,
+            pool_timeout=settings.db_pool_timeout_s,
             pool_pre_ping=True,
             connect_args=settings.db_connect_args,
         )
