@@ -13,7 +13,7 @@ from orders_app.pagination import PageLimitFromQuery
 if TYPE_CHECKING:
     from orders_app.settings import OrdersSettings
 
-IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
 router = APIRouter(prefix="/v1/orders", tags=["Orders"])
 
