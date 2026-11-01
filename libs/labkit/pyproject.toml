@@ -6,10 +6,10 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "pydantic-settings>=2.11",
+    "pydantic-settings>=2.16.2",
     "structlog>=25.4",
 ]
 
 [build-system]
-requires = ["uv_build>=0.13.4,<0.14.0"]
+requires = ["uv_build>=0.13.5,<0.14.0"]
 build-backend = "uv_build"
