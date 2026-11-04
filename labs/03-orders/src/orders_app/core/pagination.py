@@ -17,7 +17,8 @@ CURSOR_VERSION = 1
 CURSOR_MAX_LENGTH = 512
 
 
-def get_page_limit_from_query(
+# Синхронные зависимости FastAPI выполняет в пуле потоков (40 на процесс), а здесь нечему блокировать
+async def get_page_limit_from_query(
     request: Request,
     limit: Annotated[int | None, Query(ge=1, le=100)] = None,
 ) -> int:
@@ -78,7 +79,8 @@ def decode_cursor(raw: str, *, filters_fp: str) -> OrdersCursor:
     return OrdersCursor(created_at=payload.t, id=payload.id)
 
 
-def decode_cursor_from_query_dep(
+# см. get_page_limit_from_query
+async def decode_cursor_from_query_dep(
     customer_id: Annotated[UUID, Query()],
     cursor: Annotated[str | None, Query(max_length=CURSOR_MAX_LENGTH)] = None,
 ) -> OrdersCursor | None:

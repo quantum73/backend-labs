@@ -49,7 +49,8 @@ async def get_orders(
     )
 
 
-def _get_idempotency_key(idempotency_key: str | None = Header(default=None)) -> str:
+# async def, чтобы FastAPI не гонял проверку заголовка через пул потоков (см. core/pagination.py)
+async def _get_idempotency_key(idempotency_key: str | None = Header(default=None)) -> str:
     if not idempotency_key:
         raise IdempotencyKeyRequiredError(detail="Idempotency-Key header is required")
     if not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
