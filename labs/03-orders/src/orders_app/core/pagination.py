@@ -1,11 +1,12 @@
 import base64
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
 from fastapi import Depends, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Strict
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Strict
 
 from orders_app.core.errors import InvalidCursorError
 
@@ -31,11 +32,19 @@ class OrdersCursor(BaseModel):
     id: UUID
 
 
+def _to_utc(value: datetime) -> datetime:
+    try:
+        return value.astimezone(UTC)
+    except OverflowError:
+        # OverflowError не подкласс ValueError, Pydantic сам его не перехватит → был бы 500
+        raise ValueError("cursor timestamp is out of range") from None
+
+
 class _OrdersCursorPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     v: Annotated[int, Strict()]
-    t: Annotated[AwareDatetime, Strict()]
+    t: Annotated[AwareDatetime, Strict(), AfterValidator(_to_utc)]
     id: UUID
     f: str
 

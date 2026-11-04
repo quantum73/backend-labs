@@ -49,6 +49,16 @@ def _without(key: str) -> dict[str, Any]:
         pytest.param(_b64({**VALID_PAYLOAD, "t": "yesterday"}), MALFORMED, id="t-not-datetime"),
         pytest.param(_b64({**VALID_PAYLOAD, "t": "2026-01-01T00:00:00"}), MALFORMED, id="t-naive"),
         pytest.param(_b64({**VALID_PAYLOAD, "t": 5}), MALFORMED, id="t-is-int"),
+        pytest.param(
+            _b64({**VALID_PAYLOAD, "t": "0001-01-01T00:00:00+14:00"}),
+            MALFORMED,
+            id="t-min-overflow",
+        ),
+        pytest.param(
+            _b64({**VALID_PAYLOAD, "t": "9999-12-31T23:59:59-14:00"}),
+            MALFORMED,
+            id="t-max-overflow",
+        ),
         pytest.param(_b64({**VALID_PAYLOAD, "id": "nope"}), MALFORMED, id="id-not-uuid"),
         pytest.param(_b64({**VALID_PAYLOAD, "extra": 1}), MALFORMED, id="extra-field"),
         # Корректный по форме, но неприменимый
