@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Annotated
 from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 
 from orders_app.core.errors import IdempotencyKeyRequiredError
-from orders_app.core.pagination import PageLimitFromQuery
+from orders_app.core.pagination import OrdersCursorFromQuery, PageLimitFromQuery
 from orders_app.db import DBConn
 from orders_app.orders import services as order_service
 from orders_app.orders.schemas import CreateOrderRequest, OrderResponse, PaginatedOrderResponse
@@ -35,12 +35,18 @@ async def get_orders(
         Query(description="Обязательный фильтр: заказы только одного клиента."),
     ],
     limit: PageLimitFromQuery,
+    cursor: OrdersCursorFromQuery,
 ) -> PaginatedOrderResponse:
     """
     Заказы клиента, новые сверху.
     ``customer_id`` обязателен, без него эндпоинт позволял бы выгрузить всю таблицу.
     """
-    return await order_service.get_paginated_orders(conn, customer_id=customer_id, limit=limit)
+    return await order_service.get_paginated_orders(
+        conn,
+        customer_id=customer_id,
+        limit=limit,
+        cursor=cursor,
+    )
 
 
 def _get_idempotency_key(idempotency_key: str | None = Header(default=None)) -> str:

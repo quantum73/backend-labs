@@ -64,6 +64,12 @@ class IdempotencyKeyRequiredError(ProblemError):
     title = "Idempotency-Key is incorrect or not given"
 
 
+class InvalidCursorError(ProblemError):
+    status = HTTPStatus.BAD_REQUEST
+    slug = "invalid-cursor"
+    title = "The provided cursor is invalid"
+
+
 class IdempotencyKeyReuseError(ProblemError):
     status = HTTPStatus.UNPROCESSABLE_CONTENT
     slug = "idempotency-key-reuse"

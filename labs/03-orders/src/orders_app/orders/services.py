@@ -8,19 +8,15 @@ from datetime import UTC, datetime, timedelta
 
 import sqlalchemy
 import sqlalchemy.exc
-from sqlalchemy import RowMapping, select
+from sqlalchemy import RowMapping, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from orders_app.core.enums import IdempotencyKeyScope, OrderStatus
 from orders_app.core.errors import IdempotencyKeyInProgressError, IdempotencyKeyReuseError, NotFoundError
+from orders_app.core.pagination import OrdersCursor, encode_cursor, filters_fingerprint
 from orders_app.db import idempotency_keys, order_items, orders
-from orders_app.orders.schemas import (
-    CreateOrderRequest,
-    OrderItemOut,
-    OrderResponse,
-    PaginatedOrderResponse,
-)
+from orders_app.orders.schemas import CreateOrderRequest, OrderItemOut, OrderResponse, PaginatedOrderResponse
 
 LOCK_NOT_AVAILABLE = "55P03"
 
@@ -66,18 +62,31 @@ async def get_paginated_orders(
     *,
     customer_id: uuid.UUID,
     limit: int,
+    cursor: OrdersCursor | None,
 ) -> PaginatedOrderResponse:
-    query = (
-        select(orders)
-        .where(orders.c.customer_id == customer_id)
-        .order_by(orders.c.created_at.desc(), orders.c.id.desc())
-        .limit(limit)
-    )
+    next_cursor = None
+
+    query = select(orders).where(orders.c.customer_id == customer_id)
+    if cursor is not None:
+        query = query.where(
+            tuple_(orders.c.created_at, orders.c.id) < tuple_(cursor.created_at, cursor.id),
+        )
+    query = query.order_by(orders.c.created_at.desc(), orders.c.id.desc()).limit(limit + 1)
+
     order_rows = (await conn.execute(query)).mappings().all()
+    has_more = len(order_rows) > limit
+    order_rows = order_rows[:limit]
+    if has_more:
+        last_row = order_rows[-1]
+        next_cursor = encode_cursor(
+            cursor=OrdersCursor(created_at=last_row.created_at, id=last_row.id),
+            filters_fp=filters_fingerprint({"customer_id": str(customer_id)}),
+        )
+
     items_by_order = await _get_order_items(conn, order_ids=[row["id"] for row in order_rows])
     return PaginatedOrderResponse(
         items=[_to_order_response(row, items_by_order[row["id"]]) for row in order_rows],
-        next_cursor=None,
+        next_cursor=next_cursor,
     )
 
 

@@ -3,15 +3,18 @@ import json
 import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
 from fastapi import APIRouter, Request
 from pydantic import SecretStr
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy import insert
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from orders_app.db import DBConn, get_db_conn
+from orders_app.core.enums import OrderStatus
+from orders_app.db import DBConn, get_db_conn, order_items, orders
 from orders_app.settings import OrdersSettings
 from tests.acceptance.helpers import assert_problem, create, order_body
 from tests.helpers import db_queries_count
@@ -32,6 +35,39 @@ def _items(*skus: str, quantity: int = 1, price: int = 100) -> list[dict[str, An
 
 async def _paginated_orders_request(client: httpx.AsyncClient, customer_id: str, **params: Any) -> httpx.Response:
     return await client.get("/v1/orders", params={"customer_id": customer_id, **params})
+
+
+async def _insert_orders_with_same_created_at(
+    engine: AsyncEngine,
+    *,
+    customer_id: uuid.UUID,
+    count: int = 2,
+) -> list[uuid.UUID]:
+    created_at = datetime.now(UTC)
+    ids = [uuid.uuid4() for _ in range(count)]
+    async with engine.begin() as conn:
+        await conn.execute(
+            insert(orders),
+            [
+                {
+                    "id": order_id,
+                    "customer_id": customer_id,
+                    "status": OrderStatus.CREATED,
+                    "currency": "RUB",
+                    "total_kopecks": 100,
+                    "created_at": created_at,
+                }
+                for order_id in ids
+            ],
+        )
+        await conn.execute(
+            insert(order_items),
+            [
+                {"order_id": order_id, "line_no": 1, "sku": "SKU-1", "quantity": 1, "unit_price_kopecks": 100}
+                for order_id in ids
+            ],
+        )
+    return ids
 
 
 async def test_get_order_by_id(client: httpx.AsyncClient, capsys) -> None:
@@ -85,11 +121,37 @@ async def test_list_orders_newest_first_with_all_items(client: httpx.AsyncClient
     newest = (await create(client, order_body(customer_id, items=_items("C-1")))).json()
     await create(client, order_body())  # чужой заказ не попадает в список
 
-    response = await _paginated_orders_request(client, customer_id, limit=2)
+    resp_page_1 = await _paginated_orders_request(client, customer_id, limit=2)
+    assert resp_page_1.status_code == 200
+    page_1_data = resp_page_1.json()
+    assert page_1_data["items"] == [newest, middle]
+    assert page_1_data["next_cursor"] is not None
+    assert oldest not in page_1_data["items"]
 
-    assert response.status_code == 200
-    assert response.json() == {"items": [newest, middle], "next_cursor": None}
-    assert oldest not in response.json()["items"]
+    resp_page_2 = await _paginated_orders_request(client, customer_id, limit=2, cursor=page_1_data["next_cursor"])
+    assert resp_page_2.status_code == 200
+    assert resp_page_2.json() == {"items": [oldest], "next_cursor": None}
+
+
+async def test_list_orders_tie_breaker_by_created_at(db_engine: AsyncEngine, client: httpx.AsyncClient) -> None:
+    customer_id = uuid.uuid4()
+    ids = await _insert_orders_with_same_created_at(db_engine, customer_id=customer_id, count=2)
+    expected = sorted(ids, reverse=True)
+
+    resp_page_1 = await _paginated_orders_request(client, str(customer_id), limit=1)
+    assert resp_page_1.status_code == 200
+    page_1_data = resp_page_1.json()
+    assert [o["id"] for o in page_1_data["items"]] == [str(expected[0])]
+    assert page_1_data["next_cursor"] is not None
+
+    resp_page_2 = await _paginated_orders_request(client, str(customer_id), limit=1, cursor=page_1_data["next_cursor"])
+    assert resp_page_2.status_code == 200
+    page_2_data = resp_page_2.json()
+    assert [o["id"] for o in page_2_data["items"]] == [str(expected[1])]
+    assert page_2_data["next_cursor"] is None
+
+    # Проверяем что created_at у обоих заказов действительно одинаковые
+    assert [o["created_at"] for o in page_1_data["items"]] == [o["created_at"] for o in page_2_data["items"]]
 
 
 async def test_list_orders_default_limit_from_settings(
