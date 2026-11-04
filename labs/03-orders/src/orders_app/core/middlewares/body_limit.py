@@ -7,6 +7,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from orders_app.core.errors import problem
 
 _TOO_LARGE = HTTPStatus.CONTENT_TOO_LARGE
+# Тот же slug даёт и обработчик HTTPException для chunked-тела; его же показывает пример в OpenAPI
+CONTENT_TOO_LARGE_SLUG = "content-too-large"
 _DETAIL_MESSAGE_TEMPLATE = "Request body must not exceed {max_body_bytes} bytes"
 
 
@@ -31,7 +33,7 @@ class BodySizeLimitMiddleware:
             response = problem(
                 Request(scope),
                 _TOO_LARGE,
-                "content-too-large",
+                CONTENT_TOO_LARGE_SLUG,
                 _TOO_LARGE.phrase,
                 _DETAIL_MESSAGE_TEMPLATE.format(max_body_bytes=self.max_body_bytes),
             )

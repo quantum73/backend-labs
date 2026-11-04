@@ -36,6 +36,9 @@ from orders_app.core.middlewares.request_context import REQUEST_ID_HEADER, REQUE
 
 PROBLEM_JSON = "application/problem+json"
 TYPE_BASE = "https://errors.orders.example/"
+# slug и title ошибок, у которых нет своего класса: их используют и обработчики, и примеры в OpenAPI
+VALIDATION_ERROR_SLUG, VALIDATION_ERROR_TITLE = "validation-error", "Request validation failed"
+INTERNAL_ERROR_SLUG, INTERNAL_ERROR_TITLE = "internal-error", "Internal server error"
 
 
 class ProblemError(Exception):
@@ -139,7 +142,7 @@ async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, RequestValidationError)  # noqa: S101
     # Без поля input: в нём может быть номер карты, пароль, персональные данные
     errors = [{"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]} for e in exc.errors()]
-    return problem(request, 422, "validation-error", "Request validation failed", errors=errors)
+    return problem(request, 422, VALIDATION_ERROR_SLUG, VALIDATION_ERROR_TITLE, errors=errors)
 
 
 async def _http_error(request: Request, exc: Exception) -> JSONResponse:
@@ -168,7 +171,7 @@ async def _unhandled(request: Request, _exc: Exception) -> JSONResponse:
     """
     request_id: str | None = getattr(request.state, REQUEST_ID_STATE_KEY, None)
     structlog.get_logger().exception("unhandled_error", path=request.url.path, request_id=request_id)
-    response = problem(request, 500, "internal-error", "Internal server error")
+    response = problem(request, 500, INTERNAL_ERROR_SLUG, INTERNAL_ERROR_TITLE)
     if request_id is not None:
         response.headers[REQUEST_ID_HEADER.decode("latin-1")] = request_id
     return response
