@@ -61,6 +61,7 @@ def create_app(settings: OrdersSettings) -> FastAPI:
             yield {"engine": engine, "database": database, "settings": settings}
         finally:
             await engine.dispose()
+            structlog.get_logger().info("db_pool_closed")
 
     app = FastAPI(
         title="Orders API",

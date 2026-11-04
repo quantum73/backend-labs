@@ -52,11 +52,11 @@ async def test_masked_route_in_access_log(client_factory, capsys) -> None:
     )
     async with client_factory(custom_routers=[custom_router]) as client:
         response = await client.get(access_log_api_handler_path.format(idx=idx))
+        log_event = _read_single_event(capsys)  # до остановки приложения: только события запроса
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
-    log_event = _read_single_event(capsys)
     assert log_event["route"] == access_log_api_handler_path
     assert idx not in log_event["route"]
 
@@ -81,13 +81,13 @@ async def test_handler_with_unhandled_error(client_factory, capsys) -> None:
 
     async with client_factory(custom_routers=[broken_router]) as client:
         response = await client.get(broken_api_handler_path, headers={"x-request-id": request_id})
+        out, err = capsys.readouterr()  # до остановки приложения: только события запроса
 
     assert response.status_code == 500
     assert_problem(response=response, status=500, slug="internal-error")
     assert "Broken" not in response.text
     assert response.headers["x-request-id"] == request_id
 
-    out, err = capsys.readouterr()
     assert not err
     lines = out.splitlines()
     assert len(lines) == 2
