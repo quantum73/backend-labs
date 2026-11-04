@@ -10,8 +10,8 @@ import httpx
 import pytest
 from fastapi import APIRouter, Request
 from pydantic import SecretStr
-from sqlalchemy import insert
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy import insert, make_url, text
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from orders_app.core.enums import OrderStatus
 from orders_app.db import DBConn, get_db_conn, order_items, orders
@@ -236,6 +236,39 @@ async def test_orders_with_unavailable_database_is_503(
     [event] = [e for e in _read_log_events(capsys) if e["event"] == "db_unavailable"]
     assert event["error_type"] == error_type
     assert event["request_id"] == "req-503"
+    assert "exception" not in event
+
+
+async def test_orders_with_exhausted_db_connections_is_503(
+    client_factory,
+    settings: OrdersSettings,
+    db_engine: AsyncEngine,
+    capsys,
+) -> None:
+    # Лимит подключений роли даёт ту же ошибку 53300 too_many_connections, что и исчерпанный max_connections,
+    # но без отдельного PostgreSQL с крошечным max_connections. Пароль генерируем, чтобы не держать в коде.
+    role, password = f"limited_{uuid.uuid4().hex}", uuid.uuid4().hex
+    async with db_engine.begin() as conn:
+        await conn.execute(text(f"CREATE ROLE {role} LOGIN PASSWORD '{password}' CONNECTION LIMIT 1"))
+
+    role_url = make_url(settings.database_url.get_secret_value()).set(username=role, password=password)
+    app_settings = OrdersSettings.model_validate(
+        {**settings.model_dump(), "database_url": role_url.render_as_string(hide_password=False)},
+    )
+
+    holder = create_async_engine(role_url)
+    try:
+        async with holder.connect(), client_factory(app_settings=app_settings) as client:  # единственный слот занят
+            capsys.readouterr()  # логи старта (db_unavailable_on_start) не относятся к запросу
+            response = await client.get(f"/v1/orders/{uuid.uuid4()}")
+    finally:
+        await holder.dispose()
+        async with db_engine.begin() as conn:
+            await conn.execute(text(f"DROP ROLE IF EXISTS {role}"))
+
+    _assert_db_unavailable(response)
+    [event] = [e for e in _read_log_events(capsys) if e["event"] == "db_unavailable"]
+    assert "too many connections" in event["error"]
     assert "exception" not in event
 
 

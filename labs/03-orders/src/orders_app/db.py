@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import sqlalchemy.exc
 import structlog
@@ -27,6 +27,10 @@ from orders_app.core.errors import DatabaseUnavailableError
 
 DB_UNAVAILABLE_ERRORS = (sqlalchemy.exc.SQLAlchemyError, TimeoutError, OSError)
 DB_CONNECT_ERRORS = (OSError, sqlalchemy.exc.TimeoutError)
+# Сервер принял TCP-соединение, но отказал в сессии. Это временная недоступность, а не баг.
+# 53300 too_many_connections — исчерпан max_connections или лимит роли.
+# 57P03 cannot_connect_now — БД стартует или восстанавливается после сбоя.
+DB_UNAVAILABLE_SQLSTATES = frozenset({"53300", "57P03"})
 
 logger = structlog.get_logger()
 
@@ -99,15 +103,25 @@ class Database:
         self.schema_ready = True
 
 
+def _raise_db_unavailable(exc: Exception) -> NoReturn:
+    # При сбое БД трейсбек не пишем, чтобы не забить логи
+    logger.warning("db_unavailable", error_type=type(exc).__name__, error=str(exc))
+    raise DatabaseUnavailableError(detail="Could not get a database connection") from exc
+
+
 async def get_db_conn(request: Request) -> AsyncIterator[AsyncConnection]:
     engine: AsyncEngine = request.state.engine
     async with AsyncExitStack() as stack:
         try:
             conn = await stack.enter_async_context(engine.begin())
         except DB_CONNECT_ERRORS as exc:
-            # Ожидаемая ситуация при сбое БД: одна строка без трейсбека, чтобы не забить логи
-            logger.warning("db_unavailable", error_type=type(exc).__name__, error=str(exc))
-            raise DatabaseUnavailableError(detail="Could not get a database connection") from exc
+            _raise_db_unavailable(exc)
+        except sqlalchemy.exc.DBAPIError as exc:
+            # Остальные ошибки сервера (например, неверный пароль) - это ошибка конфигурации, 500
+            if getattr(exc.orig, "sqlstate", None) not in DB_UNAVAILABLE_SQLSTATES:
+                raise
+            _raise_db_unavailable(exc)
+
         yield conn
 
 
