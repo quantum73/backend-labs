@@ -23,7 +23,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from orders_app.errors import DatabaseUnavailableError
+from orders_app.core.errors import DatabaseUnavailableError
 
 DB_UNAVAILABLE_ERRORS = (sqlalchemy.exc.SQLAlchemyError, TimeoutError, OSError)
 DB_CONNECT_ERRORS = (OSError, sqlalchemy.exc.TimeoutError)

@@ -23,6 +23,7 @@ import structlog
 from asgi_lifespan import LifespanManager
 from fastapi import APIRouter
 from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from labkit.logging import configure_logging
 
@@ -48,6 +49,16 @@ def settings(database_url: str) -> OrdersSettings:
     from orders_app.settings import OrdersSettings  # noqa: PLC0415
 
     return OrdersSettings(_env_file=None, env="test", database_url=SecretStr(database_url))
+
+
+@pytest_asyncio.fixture
+async def db_engine(settings: OrdersSettings) -> AsyncIterator[AsyncEngine]:
+    """Отдельный engine, чтобы смотреть в БД мимо API."""
+    engine = create_async_engine(settings.database_url.get_secret_value())
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture

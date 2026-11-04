@@ -1,28 +1,16 @@
 import asyncio
 import time
-from collections.abc import AsyncIterator
 
 import httpx
 import pytest
-import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-from orders_app.orders.schemas import IdempotencyKeyScope
+from orders_app.core.enums import IdempotencyKeyScope
 from orders_app.settings import OrdersSettings
 from tests.acceptance.helpers import assert_problem, create, new_key, order_body
 
 pytestmark = pytest.mark.asyncio
-
-
-@pytest_asyncio.fixture
-async def db_engine(settings: OrdersSettings) -> AsyncIterator[AsyncEngine]:
-    """Отдельный engine, чтобы смотреть в БД мимо API."""
-    engine = create_async_engine(settings.database_url.get_secret_value())
-    try:
-        yield engine
-    finally:
-        await engine.dispose()
 
 
 async def _row_counts(engine: AsyncEngine) -> tuple[int, int]:

@@ -32,7 +32,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from orders_app.middleware import REQUEST_ID_HEADER, REQUEST_ID_STATE_KEY
+from orders_app.core.middlewares import REQUEST_ID_HEADER, REQUEST_ID_STATE_KEY
 
 PROBLEM_JSON = "application/problem+json"
 TYPE_BASE = "https://errors.orders.example/"

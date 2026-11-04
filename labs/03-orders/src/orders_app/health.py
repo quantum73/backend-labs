@@ -3,8 +3,8 @@ import asyncio
 from fastapi import APIRouter, Request, status
 from sqlalchemy import text
 
+from orders_app.core.errors import DBNotReadyError
 from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
-from orders_app.errors import DBNotReadyError
 
 router = APIRouter(tags=["Health"])
 

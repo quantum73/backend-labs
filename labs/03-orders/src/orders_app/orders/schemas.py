@@ -1,18 +1,11 @@
-from enum import StrEnum, auto
 from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
 
+from orders_app.core.enums import OrderStatus
+
 SkuStr = Annotated[str, StringConstraints(pattern=r"^[A-Z0-9][A-Z0-9-]{0,63}$")]
-
-
-class OrderStatus(StrEnum):
-    CREATED = auto()
-
-
-class IdempotencyKeyScope(StrEnum):
-    CREATE_ORDER = auto()
 
 
 class CreateOrderRequest(BaseModel):
