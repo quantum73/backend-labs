@@ -13,6 +13,7 @@ DbLockTimeoutMs = Annotated[int, Field(default=1000, ge=1)]
 DbConnectTimeoutS = Annotated[float, Field(default=1.0, gt=0)]
 DbPoolTimeoutS = Annotated[float, Field(default=1.0, gt=0)]
 IdempotencyTTLs = Annotated[int, Field(default=86400, ge=60)]
+MaxRequestBodyBytes = Annotated[int, Field(default=64 * 1024, ge=1024)]
 PageDefaultLimit = Annotated[int, Field(default=20, ge=1, le=100)]
 
 
@@ -36,6 +37,9 @@ class OrdersSettings(AppSettings):
     db_pool_timeout_s: DbPoolTimeoutS
     idempotency_ttl_s: IdempotencyTTLs
     page_default_limit: PageDefaultLimit
+    # Самый большой допустимый заказ (100 позиций) занимает около 12 КБ JSON, 64 КБ - с запасом.
+    # Без лимита сервер читает в память и разбирает тело любого размера, прежде чем валидация его отклонит.
+    max_request_body_bytes: MaxRequestBodyBytes
 
     @field_validator("database_url", mode="after")
     @classmethod

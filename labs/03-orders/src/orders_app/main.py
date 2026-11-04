@@ -8,7 +8,8 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from orders_app.core.errors import install_problem_handlers
-from orders_app.core.middlewares import RequestContextMiddleware
+from orders_app.core.middlewares.body_limit import BodySizeLimitMiddleware
+from orders_app.core.middlewares.request_context import RequestContextMiddleware
 from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
 from orders_app.health import router as health_router
 from orders_app.orders.api import router as orders_router
@@ -66,6 +67,9 @@ def create_app(settings: OrdersSettings) -> FastAPI:
         lifespan=lifespan,
     )
     install_problem_handlers(app)
+    # Порядок middleware важен: последний добавленный middleware - внешний.
+    # RequestContext снаружи, чтобы и ответ 413 получил x-request-id и попал в access log.
+    app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=settings.max_request_body_bytes)
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
     app.include_router(orders_router)

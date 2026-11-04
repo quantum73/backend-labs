@@ -32,7 +32,7 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from orders_app.core.middlewares import REQUEST_ID_HEADER, REQUEST_ID_STATE_KEY
+from orders_app.core.middlewares.request_context import REQUEST_ID_HEADER, REQUEST_ID_STATE_KEY
 
 PROBLEM_JSON = "application/problem+json"
 TYPE_BASE = "https://errors.orders.example/"
@@ -151,7 +151,9 @@ async def _http_error(request: Request, exc: Exception) -> JSONResponse:
 
     assert isinstance(exc, StarletteHTTPException)  # noqa: S101
     phrase = HTTPStatus(exc.status_code).phrase
-    response = problem(request, exc.status_code, phrase.lower().replace(" ", "-"), phrase)
+    # detail по умолчанию у Starlette совпадает с phrase; передаём его, только если он что-то добавляет
+    detail = exc.detail if exc.detail != phrase else None
+    response = problem(request, exc.status_code, phrase.lower().replace(" ", "-"), phrase, detail)
     if exc.headers:
         response.headers.update(exc.headers)
 
