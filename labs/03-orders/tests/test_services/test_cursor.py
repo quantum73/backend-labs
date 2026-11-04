@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from orders_app.core.errors import InvalidCursorError
-from orders_app.core.pagination import CURSOR_VERSION, OrdersCursor, decode_cursor, encode_cursor, filters_fingerprint
+from orders_app.core.pagination import CURSOR_VERSION, Cursor, decode_cursor, encode_cursor, filters_fingerprint
 
 CUSTOMER_ID = str(uuid.uuid4())
 FILTERS_FP = filters_fingerprint({"customer_id": CUSTOMER_ID})
@@ -83,5 +83,5 @@ def test_valid_payload_decodes() -> None:
 
 
 def test_roundtrip_decode_cursor() -> None:
-    cursor = OrdersCursor(created_at=datetime.now(UTC), id=uuid.uuid4())
+    cursor = Cursor(created_at=datetime.now(UTC), id=uuid.uuid4())
     assert decode_cursor(encode_cursor(cursor, filters_fp=FILTERS_FP), filters_fp=FILTERS_FP) == cursor

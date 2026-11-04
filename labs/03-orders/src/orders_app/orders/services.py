@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from orders_app.core.enums import IdempotencyKeyScope, OrderStatus
 from orders_app.core.errors import IdempotencyKeyInProgressError, IdempotencyKeyReuseError, NotFoundError
-from orders_app.core.pagination import OrdersCursor, encode_cursor, filters_fingerprint
+from orders_app.core.pagination import Cursor, encode_cursor
 from orders_app.db import idempotency_keys, order_items, orders
+from orders_app.orders.pagination import orders_filters_fp
 from orders_app.orders.schemas import CreateOrderRequest, OrderItemOut, OrderResponse, PaginatedOrderResponse
 
 LOCK_NOT_AVAILABLE = "55P03"
@@ -62,7 +63,7 @@ async def get_paginated_orders(
     *,
     customer_id: uuid.UUID,
     limit: int,
-    cursor: OrdersCursor | None,
+    cursor: Cursor | None,
 ) -> PaginatedOrderResponse:
     next_cursor = None
 
@@ -79,8 +80,8 @@ async def get_paginated_orders(
     if has_more:
         last_row = order_rows[-1]
         next_cursor = encode_cursor(
-            cursor=OrdersCursor(created_at=last_row.created_at, id=last_row.id),
-            filters_fp=filters_fingerprint({"customer_id": str(customer_id)}),
+            cursor=Cursor(created_at=last_row.created_at, id=last_row.id),
+            filters_fp=orders_filters_fp(customer_id),
         )
 
     items_by_order = await _get_order_items(conn, order_ids=[row["id"] for row in order_rows])

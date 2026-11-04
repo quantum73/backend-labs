@@ -14,8 +14,6 @@ if TYPE_CHECKING:
     from orders_app.settings import OrdersSettings
 
 CURSOR_VERSION = 1
-# Текущий закодированный курсор занимает ~210 символов, 512 - значение с запасом.
-CURSOR_MAX_LENGTH = 512
 
 
 # Синхронные зависимости FastAPI выполняет в пуле потоков (40 на процесс), а здесь нечему блокировать
@@ -27,11 +25,6 @@ async def get_page_limit_from_query(
     return settings.page_default_limit if limit is None else limit
 
 
-class OrdersCursor(BaseModel):
-    created_at: AwareDatetime
-    id: UUID
-
-
 def _to_utc(value: datetime) -> datetime:
     try:
         return value.astimezone(UTC)
@@ -40,7 +33,7 @@ def _to_utc(value: datetime) -> datetime:
         raise ValueError("cursor timestamp is out of range") from None
 
 
-class _OrdersCursorPayload(BaseModel):
+class _CursorPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     v: Annotated[int, Strict()]
@@ -49,12 +42,17 @@ class _OrdersCursorPayload(BaseModel):
     f: str
 
 
+class Cursor(BaseModel):
+    created_at: AwareDatetime
+    id: UUID
+
+
 def filters_fingerprint(filters: dict[str, str]) -> str:
     filters_as_string = json.dumps(filters, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(filters_as_string).hexdigest()
 
 
-def encode_cursor(cursor: OrdersCursor, *, filters_fp: str) -> str:
+def encode_cursor(cursor: Cursor, *, filters_fp: str) -> str:
     payload = {
         "v": CURSOR_VERSION,
         "t": cursor.created_at.isoformat(),
@@ -64,7 +62,7 @@ def encode_cursor(cursor: OrdersCursor, *, filters_fp: str) -> str:
     return base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
 
 
-def decode_cursor(raw: str, *, filters_fp: str) -> OrdersCursor:
+def decode_cursor(raw: str, *, filters_fp: str) -> Cursor:
     """
     Клиент может раскодировать курсор и подставить любые t/id.
     В нашем случае это безопасно: курсор лишь задаёт позицию внутри данных того же клиента.
@@ -72,7 +70,7 @@ def decode_cursor(raw: str, *, filters_fp: str) -> OrdersCursor:
     а не из курсора. Подделанный курсор может сдвинуть позицию только внутри заказов того же клиента.
     """
     try:
-        payload = _OrdersCursorPayload.model_validate_json(
+        payload = _CursorPayload.model_validate_json(
             base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)),
         )
     # Достаточно ловить ошибку ValueError, потому что binascii.Error, UnicodeDecodeError,
@@ -85,18 +83,7 @@ def decode_cursor(raw: str, *, filters_fp: str) -> OrdersCursor:
     if payload.f != filters_fp:
         raise InvalidCursorError("Cursor was issued for different filters")
 
-    return OrdersCursor(created_at=payload.t, id=payload.id)
-
-
-# см. get_page_limit_from_query
-async def decode_cursor_from_query_dep(
-    customer_id: Annotated[UUID, Query()],
-    cursor: Annotated[str | None, Query(max_length=CURSOR_MAX_LENGTH)] = None,
-) -> OrdersCursor | None:
-    if cursor is not None:
-        return decode_cursor(cursor, filters_fp=filters_fingerprint({"customer_id": str(customer_id)}))
-    return None
+    return Cursor(created_at=payload.t, id=payload.id)
 
 
 PageLimitFromQuery = Annotated[int, Depends(get_page_limit_from_query)]
-OrdersCursorFromQuery = Annotated[OrdersCursor | None, Depends(decode_cursor_from_query_dep)]

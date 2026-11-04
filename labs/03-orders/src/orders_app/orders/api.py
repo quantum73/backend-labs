@@ -2,12 +2,13 @@ import re
 import uuid
 from typing import TYPE_CHECKING, Annotated
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 
 from orders_app.core.errors import IdempotencyKeyRequiredError
-from orders_app.core.pagination import OrdersCursorFromQuery, PageLimitFromQuery
+from orders_app.core.pagination import PageLimitFromQuery
 from orders_app.db import DBConn
 from orders_app.orders import services as order_service
+from orders_app.orders.dependencies import CustomerIdFromQuery, OrdersCursorFromQuery
 from orders_app.orders.schemas import CreateOrderRequest, OrderResponse, PaginatedOrderResponse
 
 if TYPE_CHECKING:
@@ -30,10 +31,7 @@ async def get_order(order_id: uuid.UUID, conn: DBConn) -> OrderResponse:
 @router.get("", status_code=status.HTTP_200_OK, response_model=PaginatedOrderResponse)
 async def get_orders(
     conn: DBConn,
-    customer_id: Annotated[
-        uuid.UUID,
-        Query(description="Обязательный фильтр: заказы только одного клиента."),
-    ],
+    customer_id: CustomerIdFromQuery,
     limit: PageLimitFromQuery,
     cursor: OrdersCursorFromQuery,
 ) -> PaginatedOrderResponse:
