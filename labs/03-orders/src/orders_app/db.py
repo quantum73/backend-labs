@@ -110,6 +110,12 @@ def _raise_db_unavailable(exc: Exception) -> NoReturn:
 
 
 async def get_db_conn(request: Request) -> AsyncIterator[AsyncConnection]:
+    """
+    Одна транзакция на запрос: всё, что делает обработчик, коммитится или откатывается вместе.
+    DBConn объявлен со scope="function", поэтому commit выполняется после обработчика, но ДО отправки ответа:
+    упавший commit превращается в 500, а не в ложный 201 (со scope по умолчанию ответ ушёл бы раньше commit).
+    Ошибки получения соединения переводятся в 503 здесь, на границе с БД, а не глобальным обработчиком.
+    """
     engine: AsyncEngine = request.state.engine
     async with AsyncExitStack() as stack:
         try:
