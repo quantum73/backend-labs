@@ -37,6 +37,7 @@ from aggregator_app.settings import AggregatorSettings
 from aggregator_app.upstream import DEFAULT_PROFILES, FakeMarketplaceTransport
 from labkit.aio import LoopLagMonitor
 from labkit.logging import configure_logging
+from labkit.settings import summarize_validation_errors
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -239,11 +240,7 @@ async def _run(args: argparse.Namespace, settings: AggregatorSettings) -> int:
 
 
 def _log_config_invalid(error: ValidationError) -> None:
-    errors_summary = []
-    for item in error.errors(include_input=False, include_url=False):
-        field_path = ".".join(str(part) for part in item["loc"]) if item["loc"] else "root"
-        errors_summary.append({"field": field_path, "type": item["type"], "msg": item["msg"]})
-    structlog.get_logger().error("config_invalid", errors=errors_summary)
+    structlog.get_logger().error("config_invalid", errors=summarize_validation_errors(error))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -1,0 +1,79 @@
+import asyncio
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+
+import structlog
+from dishka import Provider, make_async_container
+from dishka.integrations.fastapi import FastapiProvider, setup_dishka
+from fastapi import FastAPI
+
+from orders_app.core.errors import install_problem_handlers
+from orders_app.core.middlewares.body_limit import BodySizeLimitMiddleware
+from orders_app.core.middlewares.request_context import RequestContextMiddleware
+from orders_app.core.openapi import install_problem_schema
+from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
+from orders_app.di import InfraProvider
+from orders_app.health import router as health_router
+from orders_app.orders.api import router as orders_router
+from orders_app.settings import OrdersSettings
+
+METADATA_CREATE_TIMEOUT_S = 2
+
+
+def create_app(settings: OrdersSettings, *, extra_providers: Sequence[Provider] = ()) -> FastAPI:
+    """
+    Логирование - глобальное состояние процесса, а фабрика может вызываться много раз:
+    - Если создать create_app(settings_a) с log_level=INFO, а потом create_app(settings_b) с ERROR,
+    у первого приложения уровень логов тоже станет ERROR.
+    - Логгер, который уже успел записать событие, например self.log в middleware,
+    остаётся с прежней конфигурацией после повторного configure из-за кэша логгера.
+    Поэтому configure_logging выносим в точку входа - src/orders_app/entrypoint.py::entrypoint.
+    Теперь create_app требует явной настройки, а для запуска сервера будет использовать entrypoint;
+    """
+
+    container = make_async_container(
+        InfraProvider(),
+        FastapiProvider(),
+        *extra_providers,  # extra_providers для подмены в тестах
+        context={OrdersSettings: settings},
+    )
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        """
+        Недоступная БД на старте не роняет процесс. Он жив (/livez 200), но не готов (/readyz 503).
+        - Fail fast в k8s даёт CrashLoopBackOff: паузы между рестартами растут до 5 минут,
+          и после восстановления БД под возвращается в строй медленнее, чем если просто дождаться готовности.
+        - Схему, которую не удалось создать здесь, досоздаёт /readyz. Пока её нет, трафик на под не идёт.
+        """
+        database = await container.get(Database)
+        try:
+            async with asyncio.timeout(METADATA_CREATE_TIMEOUT_S):
+                await database.ensure_schema()
+        except DB_UNAVAILABLE_ERRORS:
+            structlog.get_logger().exception(
+                "db_unavailable_on_start",
+                db_url=settings.masked_database_url,
+                connect_args=settings.db_connect_args,
+            )
+
+        try:
+            yield
+        finally:
+            await container.close()  # finalizer Scope.APP: engine.dispose() и db_pool_closed
+
+    app = FastAPI(
+        title="Orders API",
+        version="1.0.0",
+        lifespan=lifespan,
+    )
+    install_problem_handlers(app)
+    install_problem_schema(app)
+    # Порядок middleware важен: последний добавленный middleware - внешний.
+    # RequestContext снаружи, чтобы и ответ 413 получил x-request-id и попал в access log.
+    app.add_middleware(BodySizeLimitMiddleware, max_body_bytes=settings.max_request_body_bytes)
+    app.add_middleware(RequestContextMiddleware)
+    setup_dishka(container, app)  # добавляет ContainerMiddleware и кладёт контейнер в app.state
+    app.include_router(health_router, include_in_schema=False)
+    app.include_router(orders_router)
+    return app

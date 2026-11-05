@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {"json": {"()": "labkit.logging.json_formatter"}},
+  "handlers": {"stdout": {"class": "logging.StreamHandler", "formatter": "json", "stream": "ext://sys.stdout"}},
+  "loggers": {
+    "uvicorn": {"handlers": [], "propagate": true},
+    "uvicorn.error": {"handlers": [], "propagate": true},
+    "uvicorn.access": {"handlers": [], "propagate": true},
+    "_granian": {"handlers": ["stdout"], "level": "INFO", "propagate": false},
+    "granian.access": {"handlers": ["stdout"], "level": "INFO", "propagate": false}
+  },
+  "root": {"handlers": ["stdout"], "level": "INFO"}
+}

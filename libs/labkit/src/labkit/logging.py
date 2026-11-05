@@ -1,14 +1,47 @@
 import logging
+import sys
 from typing import Any, TextIO
 
 import structlog
 from structlog.processors import ExceptionRenderer
+from structlog.stdlib import ProcessorFormatter
 from structlog.tracebacks import ExceptionDictTransformer
 from structlog.typing import EventDict, WrappedLogger
 
 SENSITIVE_FIELDS = frozenset({"password", "token", "secret", "authorization", "api_key", "card"})
 MASKED_FIELD = "***"
 _PASSTHROUGH_KEYS = frozenset({"event", "timestamp", "level"})
+# Логгеры серверов приложений: у них свои обработчики и текстовый формат, отправляем их записи в root
+_SERVER_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access", "_granian", "granian.access")
+
+
+def _shared_processors() -> list[structlog.typing.Processor]:
+    """Общие для structlog-событий и stdlib-записей: оба потока выглядят одинаково."""
+    return [
+        structlog.contextvars.merge_contextvars,  # request_id попадёт и в логи библиотек внутри запроса
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.processors.TimeStamper(fmt="iso", utc=True),
+        mask_sensitive,
+    ]
+
+
+def build_formatter(*, json: bool = True) -> logging.Formatter:
+    renderer: list[structlog.typing.Processor] = (
+        [ExceptionRenderer(ExceptionDictTransformer(show_locals=False)), structlog.processors.JSONRenderer()]
+        if json
+        else [structlog.dev.ConsoleRenderer()]
+    )
+    return ProcessorFormatter(
+        # Для записей stdlib: у них не было structlog-процессоров. ExtraAdder переносит поля из extra=
+        foreign_pre_chain=[structlog.stdlib.ExtraAdder(), *_shared_processors()],
+        processors=[ProcessorFormatter.remove_processors_meta, *renderer],
+    )
+
+
+def json_formatter() -> logging.Formatter:
+    """Фабрика для dictConfig серверов: "()": "labkit.logging.json_formatter"."""
+    return build_formatter(json=True)
 
 
 def _is_sensitive(key: object) -> bool:
@@ -38,22 +71,37 @@ def mask_sensitive(_: WrappedLogger, __: str, event_dict: EventDict) -> EventDic
     return passthrough | masked
 
 
+class _CurrentStdoutHandler(logging.StreamHandler[TextIO]):
+    """
+    Пишет в sys.stdout, актуальный на момент записи, а не на момент настройки.
+    StreamHandler(sys.stdout) запомнил бы поток при вызове configure_logging, и подмена sys.stdout после этого
+    (capsys в тестах, перенаправление вывода) молча теряла бы логи. Так же вёл себя прежний PrintLoggerFactory.
+    """
+
+    @property
+    def stream(self) -> TextIO:
+        return sys.stdout
+
+    @stream.setter
+    def stream(self, _value: TextIO) -> None:
+        pass  # StreamHandler.__init__ присваивает stream; поток всегда берём из sys.stdout
+
+
 def configure_logging(*, level: str = "INFO", json: bool = True, stream: TextIO | None = None) -> None:
-    """Вызывается ОДИН раз в точке входа приложения. Библиотеки логирование не настраивают."""
-    shared: list[structlog.typing.Processor] = [
-        structlog.contextvars.merge_contextvars,  # поля из контекста: request_id, user_id
-        structlog.processors.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso", utc=True),
-        mask_sensitive,
-    ]
-    renderer: list[structlog.typing.Processor] = (
-        [ExceptionRenderer(ExceptionDictTransformer(show_locals=False)), structlog.processors.JSONRenderer()]
-        if json
-        else [structlog.dev.ConsoleRenderer()]
-    )
+    """Вызывается ОДИН раз в точке входа. Все логи процесса (наши и библиотек) уходят одним форматом."""
+    handler = logging.StreamHandler(stream) if stream is not None else _CurrentStdoutHandler()
+    handler.setFormatter(build_formatter(json=json))
+    root = logging.getLogger()
+    root.handlers[:] = [handler]
+    root.setLevel(level)
+    for name in _SERVER_LOGGERS:
+        server_logger = logging.getLogger(name)
+        server_logger.handlers.clear()
+        server_logger.propagate = True
+
     structlog.configure(
-        processors=[*shared, *renderer],
+        processors=[*_shared_processors(), ProcessorFormatter.wrap_for_formatter],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelNamesMapping()[level]),
-        logger_factory=structlog.PrintLoggerFactory(file=stream),
+        logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )

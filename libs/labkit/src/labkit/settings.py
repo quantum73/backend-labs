@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,3 +16,18 @@ class AppSettings(BaseSettings):
     env: Literal["local", "test", "staging", "production"] = "local"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_json: bool = True
+
+
+def summarize_validation_errors(error: ValidationError) -> list[dict[str, str]]:
+    """
+    Ошибки конфига для события config_invalid: поле, тип и сообщение, без введённых значений.
+    Для того чтобы скрыть секреты include_input=False обязателен.
+    """
+    return [
+        {
+            "field": ".".join(str(part) for part in item["loc"]) if item["loc"] else "root",
+            "type": item["type"],
+            "msg": item["msg"],
+        }
+        for item in error.errors(include_input=False, include_url=False)
+    ]

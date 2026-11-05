@@ -1,4 +1,4 @@
-.PHONY: install fmt lint typecheck test check pre-pr
+.PHONY: install fmt lint typecheck test check pre-pr openapi
 
 install:
 	uv sync --all-packages
@@ -18,5 +18,8 @@ typecheck:
 test:
 	uv run pytest
 
+openapi:
+	uv run python labs/03-orders/scripts/export_openapi.py
+
 check: lint typecheck test
-pre-pr: fmt lint typecheck
+pre-pr: fmt lint typecheck openapi

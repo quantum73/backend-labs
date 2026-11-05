@@ -1,5 +1,6 @@
 import copy
 import json
+import logging
 import sys
 import threading
 from collections.abc import Callable
@@ -166,3 +167,25 @@ def test_logger_stream_parameter(
     log_output = getattr(outputs_data, getattr_log_target).strip()
     assert not empty_output, f"Expected `{getattr_empty_target}` to be empty, got: {empty_output}"
     assert "log_event" in log_output, f"Expected 'log_event' in `{getattr_log_target}`, but it is not"
+
+
+def test_stdlib_logs_are_json_and_masked(capsys):
+    configure_logging(level="INFO", json=True)
+
+    logging.getLogger("uvicorn.error").info("Started server process [%d]", 42, extra={"password": SECRET})
+
+    [line] = capsys.readouterr().out.splitlines()
+    event = json.loads(line)
+    assert event["event"] == "Started server process [42]"  # %-форматирование применено
+    assert event["logger"] == "uvicorn.error"
+    assert event["level"] == "info"
+    assert event["password"] == MASKED_FIELD  # маскирование и для логов библиотек
+
+
+def test_server_loggers_have_no_own_handlers(capsys):
+    logging.getLogger("uvicorn.access").addHandler(logging.StreamHandler())  # как настроил бы сам uvicorn
+    configure_logging(level="INFO", json=True)
+
+    logging.getLogger("uvicorn.access").info("GET /x 200")
+
+    assert len(capsys.readouterr().out.splitlines()) == 1  # одна строка, без дубля в текстовом формате
