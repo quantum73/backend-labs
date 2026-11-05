@@ -13,7 +13,7 @@ class _QueriesInfo:
 def db_queries_count():
     queries_info = _QueriesInfo()
 
-    def _count(conn, cursor, statement, parameters, context, executemany) -> None:  # noqa: PLR0917 - для тестов
+    def _count(conn, cursor, statement, parameters, context, executemany) -> None:
         queries_info.statements.append(statement)
 
     event.listen(Engine, "before_cursor_execute", _count)
