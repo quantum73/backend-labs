@@ -13,14 +13,15 @@ PostgreSQL для тестов:
 
 import contextlib
 import os
-from collections.abc import AsyncIterator, Callable, Iterator
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 import pytest_asyncio
 import structlog
 from asgi_lifespan import LifespanManager
+from dishka import Provider
 from fastapi import APIRouter
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -86,18 +87,15 @@ def client_factory(
     async def _make_client(
         app_settings: OrdersSettings | None = None,
         custom_routers: list[APIRouter] | None = None,
-        dependency_overrides: dict[Callable[..., Any], Callable[..., Any]] | None = None,
+        extra_providers: Sequence[Provider] = (),  # подмена провайдеров Dishka (с override=True)
     ) -> AsyncIterator[httpx.AsyncClient]:
         from orders_app.main import create_app  # noqa: PLC0415
 
         app_settings = app_settings if app_settings else settings
-        app = create_app(app_settings)
+        app = create_app(app_settings, extra_providers=extra_providers)
         if custom_routers:
             for router in custom_routers:
                 app.include_router(router)
-
-        if dependency_overrides:
-            app.dependency_overrides.update(dependency_overrides)
 
         async with LifespanManager(app) as manager:
             transport = httpx.ASGITransport(app=manager.app, raise_app_exceptions=False)

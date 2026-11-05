@@ -1,12 +1,14 @@
 import asyncio
 
-from fastapi import APIRouter, Request, status
+from dishka import FromDishka
+from dishka.integrations.fastapi import DishkaRoute
+from fastapi import APIRouter, status
 from sqlalchemy import text
 
 from orders_app.core.errors import DBNotReadyError
 from orders_app.db import DB_UNAVAILABLE_ERRORS, Database
 
-router = APIRouter(tags=["Health"])
+router = APIRouter(tags=["Health"], route_class=DishkaRoute)
 
 DATABASE_CHECK_TIMEOUT_S = 1
 _OK_RESPONSE_PAYLOAD = {"status": "ok"}
@@ -18,7 +20,7 @@ async def livez() -> dict[str, str]:
 
 
 @router.get("/readyz", status_code=status.HTTP_200_OK)
-async def readyz(request: Request) -> dict[str, str]:
+async def readyz(database: FromDishka[Database]) -> dict[str, str]:
     """
     Готовность = БД отвечает и схема создана.
     Если БД была недоступна на старте, схему досоздаём здесь.
@@ -29,7 +31,6 @@ async def readyz(request: Request) -> dict[str, str]:
     а DDL из проб нескольких подов одновременно — это гонка.
     В проде схему меняют миграции отдельным шагом, это разбирается в Модуле 7.
     """
-    database: Database = request.state.database
     try:
         async with asyncio.timeout(DATABASE_CHECK_TIMEOUT_S):
             await database.ensure_schema()

@@ -2,26 +2,27 @@ import base64
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Query, Request
+from dishka import FromDishka
+from dishka.integrations.fastapi import inject
+from fastapi import Depends, Query
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Strict
 
 from orders_app.core.errors import InvalidCursorError
-
-if TYPE_CHECKING:
-    from orders_app.settings import OrdersSettings
+from orders_app.settings import OrdersSettings  # не под TYPE_CHECKING: Dishka читает тип из аннотации во время работы
 
 CURSOR_VERSION = 1
 
 
-# Синхронные зависимости FastAPI выполняет в пуле потоков (40 на процесс), а здесь нечему блокировать
+# Синхронные зависимости FastAPI выполняет в пуле потоков (40 на процесс), а здесь нечему блокировать.
+# @inject: DishkaRoute внедряет FromDishka только в сам маршрут, во вложенную зависимость — нет
+@inject
 async def get_page_limit_from_query(
-    request: Request,
+    settings: FromDishka[OrdersSettings],
     limit: Annotated[int | None, Query(ge=1, le=100)] = None,
 ) -> int:
-    settings: OrdersSettings = request.state.settings
     return settings.page_default_limit if limit is None else limit
 
 

@@ -17,7 +17,8 @@ def _walk(dependant: Dependant) -> Iterator[Dependant]:
 def test_dependencies_do_not_run_in_threadpool(settings: OrdersSettings) -> None:
     # Синхронные зависимости FastAPI выполняет в пуле потоков - 40 потоков на процесс.
     # Под нагрузкой они становятся ещё одним потолком. Ни одна наша зависимость ничего не блокирует,
-    # поэтому все должны быть async def (или async-генераторами, как get_db_conn).
+    # поэтому все должны быть async def (или async-генераторами).
+    # FromDishka у DishkaRoute тоже превращается в async-зависимость.
     app = create_app(settings)
     routes = [
         (f"{sorted(context.original_route.methods)} {context.path_format}", context.original_route)

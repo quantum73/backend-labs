@@ -1,11 +1,8 @@
-from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Annotated, NoReturn
+from typing import NoReturn
 
 import sqlalchemy.exc
 import structlog
-from fastapi import Depends, Request
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -21,7 +18,7 @@ from sqlalchemy import (
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from orders_app.core.errors import DatabaseUnavailableError
 
@@ -103,32 +100,7 @@ class Database:
         self.schema_ready = True
 
 
-def _raise_db_unavailable(exc: Exception) -> NoReturn:
+def raise_db_unavailable(exc: Exception) -> NoReturn:
     # При сбое БД трейсбек не пишем, чтобы не забить логи
     logger.warning("db_unavailable", error_type=type(exc).__name__, error=str(exc))
     raise DatabaseUnavailableError(detail="Could not get a database connection") from exc
-
-
-async def get_db_conn(request: Request) -> AsyncIterator[AsyncConnection]:
-    """
-    Одна транзакция на запрос: всё, что делает обработчик, коммитится или откатывается вместе.
-    DBConn объявлен со scope="function", поэтому commit выполняется после обработчика, но ДО отправки ответа:
-    упавший commit превращается в 500, а не в ложный 201 (со scope по умолчанию ответ ушёл бы раньше commit).
-    Ошибки получения соединения переводятся в 503 здесь, на границе с БД, а не глобальным обработчиком.
-    """
-    engine: AsyncEngine = request.state.engine
-    async with AsyncExitStack() as stack:
-        try:
-            conn = await stack.enter_async_context(engine.begin())
-        except DB_CONNECT_ERRORS as exc:
-            _raise_db_unavailable(exc)
-        except sqlalchemy.exc.DBAPIError as exc:
-            # Остальные ошибки сервера (например, неверный пароль) - это ошибка конфигурации, 500
-            if getattr(exc.orig, "sqlstate", None) not in DB_UNAVAILABLE_SQLSTATES:
-                raise
-            _raise_db_unavailable(exc)
-
-        yield conn
-
-
-DBConn = Annotated[AsyncConnection, Depends(get_db_conn, scope="function")]

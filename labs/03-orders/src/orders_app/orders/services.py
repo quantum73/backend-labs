@@ -143,69 +143,69 @@ async def idempotent_create_order(
     В идеале нужна периодическая очистка истёкших ключей (DELETE ... WHERE expires_at < now())
     и индекс по expires_at (его я добавил), но для лабы это можно опустить.
     """
-
-    now = datetime.now(UTC)
-    fingerprint = request_fingerprint(create_order_payload)
-    claim = (
-        insert(idempotency_keys)
-        .values(
-            scope=IdempotencyKeyScope.CREATE_ORDER,
-            key=idempotency_key,
-            request_hash=fingerprint,
-            response_status=sqlalchemy.null(),
-            response_body=sqlalchemy.null(),
-            created_at=now,
-            expires_at=now + timedelta(seconds=idempotency_ttl_s),
-        )
-        .on_conflict_do_update(
-            index_elements=["scope", "key"],
-            set_={
-                "request_hash": fingerprint,
-                "created_at": now,
-                "expires_at": now + timedelta(seconds=idempotency_ttl_s),
-                "response_status": sqlalchemy.null(),
-                "response_body": sqlalchemy.null(),
-            },
-            where=idempotency_keys.c.expires_at < now,
-        )
-        .returning(idempotency_keys.c.key)
-    )
-    # Если этот ключ сейчас вставляет другая транзакция, INSERT ждёт её COMMIT/ROLLBACK, но не дольше lock_timeout
-    try:
-        claimed = (await conn.execute(claim)).first()
-    except sqlalchemy.exc.DBAPIError as exc:
-        if getattr(exc.orig, "sqlstate", None) == LOCK_NOT_AVAILABLE:
-            raise IdempotencyKeyInProgressError(
-                detail="The original request with this Idempotency-Key has not finished yet, retry later",
-            ) from None
-        raise
-
-    if claimed is None:
-        # response_status не читаем. Единственная операция под ключом всегда отвечает 201.
-        # Он пригодится, когда под ключом появятся операции с другими статусами ответа.
-        stored = (
-            await conn.execute(
-                select(idempotency_keys.c.request_hash, idempotency_keys.c.response_body).where(
-                    idempotency_keys.c.scope == IdempotencyKeyScope.CREATE_ORDER,
-                    idempotency_keys.c.key == idempotency_key,
-                )
+    async with conn.begin():
+        now = datetime.now(UTC)
+        fingerprint = request_fingerprint(create_order_payload)
+        claim = (
+            insert(idempotency_keys)
+            .values(
+                scope=IdempotencyKeyScope.CREATE_ORDER,
+                key=idempotency_key,
+                request_hash=fingerprint,
+                response_status=sqlalchemy.null(),
+                response_body=sqlalchemy.null(),
+                created_at=now,
+                expires_at=now + timedelta(seconds=idempotency_ttl_s),
             )
-        ).one()
-        if stored.request_hash != fingerprint:
-            raise IdempotencyKeyReuseError("This Idempotency-Key was used with a different request body")
-
-        return CreateResult(order=OrderResponse.model_validate(stored.response_body), replayed=True)
-
-    order = await create_order(conn, create_order_payload=create_order_payload, created_at=now)
-    await conn.execute(  # ответ сохраняем в ТОЙ ЖЕ транзакции
-        idempotency_keys.update()
-        .where(
-            idempotency_keys.c.scope == IdempotencyKeyScope.CREATE_ORDER,
-            idempotency_keys.c.key == idempotency_key,
+            .on_conflict_do_update(
+                index_elements=["scope", "key"],
+                set_={
+                    "request_hash": fingerprint,
+                    "created_at": now,
+                    "expires_at": now + timedelta(seconds=idempotency_ttl_s),
+                    "response_status": sqlalchemy.null(),
+                    "response_body": sqlalchemy.null(),
+                },
+                where=idempotency_keys.c.expires_at < now,
+            )
+            .returning(idempotency_keys.c.key)
         )
-        .values(response_status=201, response_body=order.model_dump(mode="json"))
-    )
-    return CreateResult(order=order, replayed=False)
+        # Если этот ключ сейчас вставляет другая транзакция, INSERT ждёт её COMMIT/ROLLBACK, но не дольше lock_timeout
+        try:
+            claimed = (await conn.execute(claim)).first()
+        except sqlalchemy.exc.DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) == LOCK_NOT_AVAILABLE:
+                raise IdempotencyKeyInProgressError(
+                    detail="The original request with this Idempotency-Key has not finished yet, retry later",
+                ) from None
+            raise
+
+        if claimed is None:
+            # response_status не читаем. Единственная операция под ключом всегда отвечает 201.
+            # Он пригодится, когда под ключом появятся операции с другими статусами ответа.
+            stored = (
+                await conn.execute(
+                    select(idempotency_keys.c.request_hash, idempotency_keys.c.response_body).where(
+                        idempotency_keys.c.scope == IdempotencyKeyScope.CREATE_ORDER,
+                        idempotency_keys.c.key == idempotency_key,
+                    )
+                )
+            ).one()
+            if stored.request_hash != fingerprint:
+                raise IdempotencyKeyReuseError("This Idempotency-Key was used with a different request body")
+
+            return CreateResult(order=OrderResponse.model_validate(stored.response_body), replayed=True)
+
+        order = await create_order(conn, create_order_payload=create_order_payload, created_at=now)
+        await conn.execute(  # ответ сохраняем в ТОЙ ЖЕ транзакции
+            idempotency_keys.update()
+            .where(
+                idempotency_keys.c.scope == IdempotencyKeyScope.CREATE_ORDER,
+                idempotency_keys.c.key == idempotency_key,
+            )
+            .values(response_status=201, response_body=order.model_dump(mode="json"))
+        )
+        return CreateResult(order=order, replayed=False)
 
 
 async def create_order(

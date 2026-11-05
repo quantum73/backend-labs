@@ -2,19 +2,21 @@ import asyncio
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import pytest
-from fastapi import APIRouter, Request
+from dishka import FromDishka
+from dishka.integrations.fastapi import DishkaRoute
+from fastapi import APIRouter
 from pydantic import SecretStr
-from sqlalchemy import insert, make_url, text
+from sqlalchemy import Engine, insert, make_url, text
+from sqlalchemy import event as sa_event  # не event: так в тестах называется событие лога
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from orders_app.core.enums import OrderStatus
-from orders_app.db import DBConn, get_db_conn, order_items, orders
+from orders_app.db import order_items, orders
 from orders_app.settings import OrdersSettings
 from tests.acceptance.helpers import assert_problem, create, order_body
 from tests.helpers import db_queries_count
@@ -76,7 +78,8 @@ async def test_get_order_by_id(client: httpx.AsyncClient, capsys) -> None:
     assert response.status_code == 200
     assert response.json() == created_response_data
 
-    get_order_log_event = _read_log_events(capsys)[-1]
+    # Последнее событие access log, а не последняя строка: httpx тестового клиента тоже пишет в общий поток
+    get_order_log_event = [e for e in _read_log_events(capsys) if e["event"] == "http_request"][-1]
     assert get_order_log_event["route"] == "/v1/orders/{order_id}"
     assert get_order_log_event["status"] == 200
 
@@ -279,11 +282,11 @@ async def test_pool_exhausted_is_503_after_pool_timeout(
     pool_timeout_s = 0.3
     conn_taken, release = asyncio.Event(), asyncio.Event()
 
-    async def _hold_connection(conn: DBConn) -> None:
+    async def _hold_connection(conn: FromDishka[AsyncConnection]) -> None:
         conn_taken.set()
         await release.wait()
 
-    holder = APIRouter()
+    holder = APIRouter(route_class=DishkaRoute)
     holder.add_api_route("/test/hold-connection", _hold_connection, methods=["GET"])
     app_settings = OrdersSettings.model_validate(
         {
@@ -310,18 +313,22 @@ async def test_pool_exhausted_is_503_after_pool_timeout(
 class _CommitFailedError(Exception): ...
 
 
-async def _failing_commit_conn(request: Request) -> AsyncIterator[AsyncConnection]:
-    engine = request.state.engine
-    async with engine.begin() as conn:
-        yield conn
-        raise _CommitFailedError
+def _fail_commit(conn: Any) -> None:
+    raise _CommitFailedError
 
 
 async def test_commit_failure_before_response(client_factory, capsys) -> None:
+    # Падает настоящий COMMIT, где бы он ни выполнялся: событие SQLAlchemy срабатывает до коммита в БД.
+    # Поэтому тест ловит и главную ловушку Dishka: если перенести commit в finalizer провайдера Scope.REQUEST,
+    # он выполнится уже после отправки ответа, и клиент получит ложный 201.
     customer_id = str(uuid.uuid4())
     body = order_body(customer_id=customer_id)
-    async with client_factory(dependency_overrides={get_db_conn: _failing_commit_conn}) as client:
-        response = await create(client, body)
+    async with client_factory() as client:
+        sa_event.listen(Engine, "commit", _fail_commit)  # после старта: коммит create_all в lifespan не трогаем
+        try:
+            response = await create(client, body)
+        finally:
+            sa_event.remove(Engine, "commit", _fail_commit)
         assert_problem(response, 500, "internal-error")
 
     [event] = [e for e in _read_log_events(capsys) if e["event"] == "unhandled_error"]

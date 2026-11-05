@@ -1,9 +1,12 @@
 import re
 import uuid
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
+from dishka import FromDishka
+from dishka.integrations.fastapi import DishkaRoute
 from fastapi import APIRouter, Depends, Header, Request, Response, status
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from orders_app.core.errors import (
     VALIDATION_ERROR_SLUG,
@@ -24,18 +27,20 @@ from orders_app.core.openapi import (
     problem_response,
 )
 from orders_app.core.pagination import PageLimitFromQuery
-from orders_app.db import DBConn
 from orders_app.orders import services as order_service
 from orders_app.orders.dependencies import CustomerIdFromQuery, OrdersCursorFromQuery
 from orders_app.orders.schemas import CreateOrderRequest, OrderResponse, PaginatedOrderResponse
-
-if TYPE_CHECKING:
-    from orders_app.settings import OrdersSettings
+from orders_app.settings import OrdersSettings  # не под TYPE_CHECKING: Dishka читает тип из аннотации во время работы
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]{8,64}")
 
 # Общие ошибки (422, 500, 503) описаны на уровне роутера, у маршрутов — только свои
-router = APIRouter(prefix="/v1/orders", tags=["Orders"], responses=COMMON_PROBLEM_RESPONSES)
+router = APIRouter(
+    prefix="/v1/orders",
+    tags=["Orders"],
+    responses=COMMON_PROBLEM_RESPONSES,
+    route_class=DishkaRoute,
+)
 
 
 @router.get(
@@ -55,7 +60,7 @@ router = APIRouter(prefix="/v1/orders", tags=["Orders"], responses=COMMON_PROBLE
         ),
     },
 )
-async def get_order(order_id: uuid.UUID, conn: DBConn) -> OrderResponse:
+async def get_order(order_id: uuid.UUID, conn: FromDishka[AsyncConnection]) -> OrderResponse:
     return await order_service.get_order_by_id(conn, order_id=order_id)
 
 
@@ -82,7 +87,7 @@ async def get_order(order_id: uuid.UUID, conn: DBConn) -> OrderResponse:
     },
 )
 async def get_orders(
-    conn: DBConn,
+    conn: FromDishka[AsyncConnection],
     customer_id: CustomerIdFromQuery,
     limit: PageLimitFromQuery,
     cursor: OrdersCursorFromQuery,
@@ -191,9 +196,9 @@ async def create_order(
     response: Response,
     create_order_request: CreateOrderRequest,
     idempotency_key: Annotated[str, Depends(_get_idempotency_key)],
-    conn: DBConn,
+    conn: FromDishka[AsyncConnection],
+    settings: FromDishka[OrdersSettings],
 ) -> OrderResponse:
-    settings: OrdersSettings = request.state.settings
     resp = await order_service.idempotent_create_order(
         conn,
         create_order_payload=create_order_request,
