@@ -19,10 +19,15 @@ docker compose -f labs/03-orders/compose.yaml up -d --wait
 ```bash
 cd labs/03-orders
 cp .env.example .env
-uv run uvicorn --factory orders_app.entrypoint:entrypoint --port 8000
+uv run uvicorn --factory orders_app.entrypoint:entrypoint --port 8000 --log-config log_config.json --no-access-log
 ```
 Для нескольких процессов: `--workers 4`.<br>
-Фабрика именно `entrypoint`, а не `create_app`: точка входа читает настройки и настраивает логирование один раз на процесс (см. [ключевые решения](#ключевые-решения)).
+`--log-config` переводит в JSON и логи самого сервера, включая строки родительского процесса при нескольких воркерах.
+`--no-access-log` убирает access log uvicorn: приложение пишет свой, с `request_id` и шаблоном маршрута.
+Granian запускается с тем же конфигом:
+`uv run granian --interface asgi --factory --workers 4 --log-config log_config.json orders_app.entrypoint:entrypoint`.<br>
+Фабрика именно `entrypoint`, а не `create_app`:
+точка входа читает настройки и настраивает логирование один раз на процесс (см. [ключевые решения](#ключевые-решения)).
 
 Документация API: http://127.0.0.1:8000/docs, схема: http://127.0.0.1:8000/openapi.json.
 
@@ -44,6 +49,12 @@ uv run python labs/03-orders/scripts/concurrency_check.py
 ```
 Скрипт отправляет 40 параллельных `POST` с одним ключом и завершается с кодом 1,
 если результат отличается от ожидаемого: все `201`, один `id`, 39 повторов, один заказ у клиента.
+
+**5. Снимок OpenAPI.**<br>
+Схема API хранится в [`openapi.json`](openapi.json), так изменения контракта видны в diff PR.
+После изменения API обнови её из корня репозитория: `make openapi` (входит в `make pre-pr`).
+CI проверяет, что снимок соответствует коду, и прогоняет `oasdiff breaking` против версии из `main`:
+ломающее изменение контракта роняет PR.
 
 ## Переменные окружения
 
@@ -91,14 +102,17 @@ uv run python labs/03-orders/scripts/concurrency_check.py
 
 - **Фабрика без побочных эффектов, логирование в точке входа.**
 Импорт и `create_app` не трогают окружение и не настраивают логи: настройка логирования глобальна для процесса.
-Это делает [`entrypoint`](src/orders_app/entrypoint.py#L15), почему — в docstring [`create_app`](src/orders_app/main.py#L22).
+Это делает [`entrypoint`](src/orders_app/entrypoint.py#L15), почему — в docstring [`create_app`](src/orders_app/main.py#L23).
 - **Старт без БД: процесс жив, но не готов.**
 Падение при старте в k8s даёт `CrashLoopBackOff` с растущими паузами, поэтому приложение стартует и ждёт БД.
 Пока БД не отвечает или схема не создана, `/readyz` отдаёт `503`, и трафик на под не идёт:
-[`lifespan`](src/orders_app/main.py#L34), [`readyz`](src/orders_app/health.py#L21), [`Database`](src/orders_app/db.py#L80).
-- **Одна транзакция на запрос, commit до ответа.**
-Зависимость со `scope="function"`, поэтому упавший commit даёт `500`, а не ложный `201`.
-Ошибки подключения переводятся в `503` на границе с БД: [`get_db_conn`](src/orders_app/db.py#L112).
+[`lifespan`](src/orders_app/main.py#L42), [`readyz`](src/orders_app/health.py#L23), [`Database`](src/orders_app/db.py#L77).
+- **Зависимости через Dishka, commit до ответа.**
+Engine и настройки живут в `Scope.APP`, соединение — в `Scope.REQUEST`: [`InfraProvider`](src/orders_app/di.py#L12).
+Провайдер соединения только выдаёт и закрывает его, а транзакцию открывает и коммитит сервис (`async with conn.begin()`).
+Commit в finalizer провайдера выполнился бы уже после отправки ответа, и упавший commit клиент увидел бы как `201`.
+Почему так — в docstring [`connection`](src/orders_app/di.py#L36), тест `test_commit_failure_before_response` это ловит.
+Ошибки подключения переводятся в `503` там же, на границе с БД.
 - **Идемпотентность claim-first.**
 Первым действием транзакции ключ занимается через `INSERT … ON CONFLICT`.
 Параллельные повторы ждут на уникальном индексе и получают сохранённый ответ;
@@ -111,13 +125,17 @@ Keyset по `(created_at, id)` с `LIMIT limit+1`, без `OFFSET` и `COUNT`;
 план — Index Scan по `ix_orders_customer_created_id` без `Sort`.
 Курсор — версионированный base64url JSON, привязанный к отпечатку фильтров.
 Его разбирает строгая pydantic-модель, поэтому битый курсор даёт `400`, а не `500`.
-Почему подпись не нужна — в docstring [`decode_cursor`](src/orders_app/core/pagination.py#L65).
+Почему подпись не нужна — в docstring [`decode_cursor`](src/orders_app/core/pagination.py#L66).
 Позиции заказов страницы загружаются одним запросом с `IN`, без N+1: [`_get_order_items`](src/orders_app/orders/services.py#L31).
 - **Ошибки по RFC 9457.**
 Сервисный код бросает прикладные ошибки, обработчики превращают их в problem+json
 и никогда не отдают клиенту внутренние детали: [`core/errors.py`](src/orders_app/core/errors.py#L1).
 В OpenAPI все ошибки ссылаются на одну схему `ProblemDetails`,
 а примеры строятся из классов ошибок: [`core/openapi.py`](src/orders_app/core/openapi.py#L1).
+- **Один формат логов.**
+Логи приложения, uvicorn, granian и библиотек идут одним JSON-потоком с маскированием секретов:
+`labkit.configure_logging` подключает `structlog.stdlib.ProcessorFormatter` к root-логгеру,
+а [`log_config.json`](log_config.json) применяет тот же форматер ещё до загрузки приложения.
 - **Ограничения на входе.**
 Тело запроса больше лимита отклоняется до чтения в память: [`BodySizeLimitMiddleware`](src/orders_app/core/middlewares/body_limit.py#L15).
 Таймауты подключения, пула, запроса и блокировок описаны в [`OrdersSettings`](src/orders_app/settings.py#L20).
