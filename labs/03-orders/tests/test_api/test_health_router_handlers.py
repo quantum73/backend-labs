@@ -34,12 +34,17 @@ def _create_api_route(
     return custom_router
 
 
-def _read_single_event(capsys) -> dict:
+def _read_app_events(capsys) -> list[dict]:
+    # Логи библиотек тоже идут в общий JSON-поток; httpx тестового клиента пишет свою строку на каждый запрос
     out, err = capsys.readouterr()
     assert not err
-    lines = out.splitlines()
-    assert len(lines) == 1
-    return json.loads(lines[0])
+    events = [json.loads(line) for line in out.splitlines()]
+    return [event for event in events if event.get("logger") != "httpx"]
+
+
+def _read_single_event(capsys) -> dict:
+    [event] = _read_app_events(capsys)
+    return event
 
 
 async def test_masked_route_in_access_log(client_factory, capsys) -> None:
@@ -81,18 +86,14 @@ async def test_handler_with_unhandled_error(client_factory, capsys) -> None:
 
     async with client_factory(custom_routers=[broken_router]) as client:
         response = await client.get(broken_api_handler_path, headers={"x-request-id": request_id})
-        out, err = capsys.readouterr()  # до остановки приложения: только события запроса
+        log_events = _read_app_events(capsys)  # до остановки приложения: только события запроса
 
     assert response.status_code == 500
     assert_problem(response=response, status=500, slug="internal-error")
     assert "Broken" not in response.text
     assert response.headers["x-request-id"] == request_id
 
-    assert not err
-    lines = out.splitlines()
-    assert len(lines) == 2
-
-    log_events = [json.loads(line) for line in lines]
+    assert len(log_events) == 2
     assert all(log["request_id"] == request_id for log in log_events)
 
     [unhandled_log_event] = [log for log in log_events if log["event"] == "unhandled_error"]
