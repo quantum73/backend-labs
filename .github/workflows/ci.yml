@@ -27,3 +27,33 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --all-packages
       - run: make lint typecheck test
+  contract:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      UV_FROZEN: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 — закреплять по SHA
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2 — закреплять по SHA
+      - run: uv sync --locked --all-packages
+      - name: openapi.json соответствует коду
+        run: |
+          uv run python labs/03-orders/scripts/export_openapi.py
+          git diff --exit-code labs/03-orders/openapi.json || { echo "::error::openapi.json устарел: make openapi"; exit 1; }
+      - run: git fetch --depth=1 origin ${{ github.base_ref }}
+      - name: Снимок есть в базовой ветке?
+        id: base
+        run: |
+          if git cat-file -e origin/${{ github.base_ref }}:labs/03-orders/openapi.json 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oasdiff/oasdiff-action/breaking@9e56cf8b3aff7edb326d5767d3d23f96127e20c3  # v0.1.21 — закреплять по SHA
+        if: steps.base.outputs.exists == 'true'
+        with:
+          base: origin/${{ github.base_ref }}:labs/03-orders/openapi.json
+          revision: HEAD:labs/03-orders/openapi.json
+          fail-on: ERR
+          review: false          # по умолчанию true: action загружает сравнение на oasdiff.com
