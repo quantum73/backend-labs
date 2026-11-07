@@ -795,7 +795,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.162" },
     { name = "granian", specifier = ">=2.8.7" },
     { name = "labkit", editable = "libs/labkit" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1" },
+    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.6" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54" },
 ]
 
