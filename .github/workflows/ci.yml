@@ -12,6 +12,7 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true            # новый push отменяет устаревший прогон
 
+# Все actions закреплены по SHA, версия в комментарии обновляется Dependabot.
 jobs:
   check:
     runs-on: ubuntu-24.04
@@ -19,10 +20,10 @@ jobs:
     env:
       UV_FROZEN: "1"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 — закреплять по SHA
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.2 — закреплять по SHA
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           enable-cache: true
       - run: uv sync --locked --all-packages
@@ -34,10 +35,10 @@ jobs:
     env:
       UV_FROZEN: "1"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 — закреплять по SHA
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.2 — закреплять по SHA
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
       - run: uv sync --locked --all-packages
       - name: openapi.json соответствует коду
         run: |
@@ -50,7 +51,7 @@ jobs:
           if git cat-file -e origin/${{ github.base_ref }}:labs/03-orders/openapi.json 2>/dev/null; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: oasdiff/oasdiff-action/breaking@9e56cf8b3aff7edb326d5767d3d23f96127e20c3  # v0.1.21 — закреплять по SHA
+      - uses: oasdiff/oasdiff-action/breaking@9e56cf8b3aff7edb326d5767d3d23f96127e20c3  # v0.1.21
         if: steps.base.outputs.exists == 'true'
         with:
           base: origin/${{ github.base_ref }}:labs/03-orders/openapi.json
