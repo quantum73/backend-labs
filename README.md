@@ -36,6 +36,7 @@ backend-labs/
 | 01 | [`labs/01-foundation`](labs/01-foundation) | Инженерный фундамент: uv workspace, ruff, mypy, pre-commit, конфиг без утечек секретов, structlog, CI | `foundation-app` |
 | 02 | [`labs/02-aggregator`](labs/02-aggregator) | Асинхронный агрегатор предложений: опрос площадок через asyncio, ретраи, дедлайны, отмена задач | `aggregator-app` |
 | 03 | [`labs/03-orders`](labs/03-orders) | HTTP API заказов: FastAPI и PostgreSQL, Problem Details, идемпотентность, курсорная пагинация. Подробнее в [README](labs/03-orders/README.md) | `orders-app` |
+| 03 | [`labs/04-checkout`](labs/04-checkout) | Разложение «толстого» сервиса оформления заказов к гексагональной архитектуре | `checkout-app` |
 
 Общий код всех лаб лежит в [`libs/labkit`](libs/labkit): базовые настройки (`env`, `log_level`, `log_json`) и `configure_logging` с маскированием секретов.
 

@@ -4,6 +4,7 @@ members = ["libs/*", "labs/*"]
 [dependency-groups]
 dev = [
     "asgi-lifespan>=2.1.0",
+    "import-linter>=2.17",
     "mypy>=2.4.1",
     "pre-commit>=4.7.0",
     "pytest>=9.2.0",
@@ -53,9 +54,17 @@ ignore = [
 "**/tests/**" = ["S101", "PLR2004", "ARG", "S311"]   # assert, «магические» числа, фикстуры, random с seed для детерминизма
 "**/scripts/**" = ["T201"]   # print - это результат скрипта
 "labs/02-aggregator/src/aggregator_app/legacy.py" = ["ALL"] # эталон "как было", не линтим
+"**/checkout_tests/**" = ["S101", "PLR2004", "ARG", "S311"]   # тесты лабы 4: пакет не tests (см. lab.md)
+"labs/04-checkout/src/checkout_app/legacy.py" = ["PLR0911", "PLR0912", "PLR2004", "PLR1730"]  # долг легаси, уходит в части 3
 
 [tool.ruff.lint.isort]
-known-first-party = ["labkit", "foundation_app", "aggregator_app", "orders_app"]
+known-first-party = [
+  "labkit",
+  "foundation_app",
+  "aggregator_app",
+  "orders_app",
+  "checkout_app",
+]
 
 [tool.ruff.format]
 docstring-code-format = true
