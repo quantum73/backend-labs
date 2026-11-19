@@ -6,7 +6,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "pydantic-settings>=2.16.2",
+    "pydantic-settings>=2.16.3",
     "structlog>=25.4",
 ]
 
