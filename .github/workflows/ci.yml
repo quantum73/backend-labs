@@ -51,7 +51,7 @@ jobs:
           if git cat-file -e origin/${{ github.base_ref }}:labs/03-orders/openapi.json 2>/dev/null; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: oasdiff/oasdiff-action/breaking@9e56cf8b3aff7edb326d5767d3d23f96127e20c3  # v0.1.21
+      - uses: oasdiff/oasdiff-action/breaking@8a211b41745fcecdfa4a86531ffbf08934fb14f6  # v0.1.23
         if: steps.base.outputs.exists == 'true'
         with:
           base: origin/${{ github.base_ref }}:labs/03-orders/openapi.json
